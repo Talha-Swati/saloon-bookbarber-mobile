@@ -4,22 +4,27 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/providers/AuthProvider";
-import { fetchAssignedBookings, fetchProfessionalProfile, ProfessionalBooking, ProfessionalProfile } from "@/services/professionalService";
+import { fetchAssignedBookings, fetchProfessionalProfile, professionalErrorMessage, ProfessionalBooking, ProfessionalProfile } from "@/services/professionalService";
 
 export default function ProfessionalDashboard() {
-  const { session, role, loading: authLoading } = useAuth();
+  const { session, role, isDemo, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<ProfessionalProfile | null>(null);
   const [bookings, setBookings] = useState<ProfessionalBooking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   useFocusEffect(useCallback(() => {
     if (role !== "professional") { setLoading(false); return; }
     setLoading(true);
-    Promise.all([fetchProfessionalProfile(), fetchAssignedBookings()])
+    setError("");
+    const mode = isDemo ? "demo" : "remote";
+    Promise.all([fetchProfessionalProfile(mode), fetchAssignedBookings(mode)])
       .then(([nextProfile, nextBookings]) => { setProfile(nextProfile); setBookings(nextBookings); })
+      .catch((nextError) => setError(professionalErrorMessage(nextError)))
       .finally(() => setLoading(false));
-  }, [role]));
+  }, [isDemo, role]));
   if (authLoading || loading) return <Screen><ActivityIndicator color={colors.primary} /></Screen>;
   if (!session || role !== "professional") return <ProfessionalAccess />;
+  if (error) return <Screen><View style={s.access}><Text style={s.title}>Unable to load workspace</Text><Text style={s.muted}>{error}</Text><Pressable style={s.primary} onPress={() => router.replace("/professional")}><Text style={s.primaryText}>Retry</Text></Pressable></View></Screen>;
   const today = bookings.filter((booking) => booking.date === "today");
   const upcoming = bookings.filter((booking) => booking.status !== "completed" && booking.status !== "no_show").length;
   const completed = bookings.filter((booking) => booking.status === "completed").length;

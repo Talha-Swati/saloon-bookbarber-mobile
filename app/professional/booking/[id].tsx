@@ -3,30 +3,52 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
-import { fetchAssignedBooking, ProfessionalBooking, ProfessionalBookingStatus, updateAssignedBookingStatus } from "@/services/professionalService";
+import { useAuth } from "@/providers/AuthProvider";
+import { fetchAssignedBooking, professionalErrorMessage, ProfessionalBooking, ProfessionalBookingStatus, transitionAssignedBookingStatus } from "@/services/professionalService";
 
 const nextActions: Record<ProfessionalBookingStatus, { label: string; status: ProfessionalBookingStatus }[]> = {
   confirmed: [{ label: "Check In", status: "checked_in" }, { label: "No-show", status: "no_show" }],
-  checked_in: [{ label: "Start Service", status: "in_service" }, { label: "No-show", status: "no_show" }],
+  checked_in: [{ label: "Start Service", status: "in_service" }],
   in_service: [{ label: "Complete", status: "completed" }],
   completed: [],
+  pending_payment: [],
+  cancelled: [],
+  rescheduled: [],
   no_show: [],
 };
 
 export default function ProfessionalBookingDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { role, isDemo } = useAuth();
   const [booking, setBooking] = useState<ProfessionalBooking | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (!id) return; fetchAssignedBooking(id).then(setBooking).finally(() => setLoading(false)); }, [id]);
+  useEffect(() => {
+    if (role !== "professional") { router.replace("/professional"); return; }
+    if (!id) return;
+    setLoading(true);
+    setError("");
+    fetchAssignedBooking(id, isDemo ? "demo" : "remote")
+      .then(setBooking)
+      .catch((nextError) => setError(professionalErrorMessage(nextError)))
+      .finally(() => setLoading(false));
+  }, [id, isDemo, role]);
   const update = async (status: ProfessionalBookingStatus) => {
     if (!booking) return;
     setBusy(true);
-    try { setBooking(await updateAssignedBookingStatus(booking.id, status)); }
-    catch (error) { Alert.alert("Unable to update booking", error instanceof Error ? error.message : "Please try again."); }
+    try {
+      setBooking(await transitionAssignedBookingStatus({
+        booking,
+        targetStatus: status,
+        mode: isDemo ? "demo" : "remote",
+      }));
+    }
+    catch (nextError) { Alert.alert("Unable to update booking", professionalErrorMessage(nextError)); }
     finally { setBusy(false); }
   };
   if (loading) return <Screen><Header /><ActivityIndicator color={colors.primary} /></Screen>;
+  if (error) return <Screen><Header /><Text style={s.empty}>{error}</Text></Screen>;
   if (!booking) return <Screen><Header /><Text style={s.empty}>Assigned booking not found.</Text></Screen>;
   return <Screen><Header /><Text style={s.kicker}>ASSIGNED BOOKING</Text><View style={s.heading}><Text style={s.title}>{booking.customerName}</Text><Status status={booking.status} /></View><View style={s.card}><Row label="Phone" value={booking.customerPhone} /><Row label="Service" value={booking.serviceName} /><Row label="Date" value={booking.date === "today" ? "Today" : booking.date} /><Row label="Time" value={booking.time} /><Row label="Duration" value={`${booking.durationMinutes} minutes`} /></View><Text style={s.section}>Status timeline</Text><View style={s.timeline}><Event text="Booking confirmed" active /><Event text="Customer checked in" active={["checked_in", "in_service", "completed"].includes(booking.status)} /><Event text="Service started" active={["in_service", "completed"].includes(booking.status)} /><Event text={booking.status === "no_show" ? "Marked no-show" : "Service completed"} active={["completed", "no_show"].includes(booking.status)} /></View>{nextActions[booking.status].length > 0 && <><Text style={s.section}>Actions</Text><View style={s.actions}>{nextActions[booking.status].map((action, index) => <Pressable disabled={busy} key={action.status} onPress={() => update(action.status)} style={[s.action, index > 0 && s.secondary, busy && { opacity: .45 }]}><Text style={[s.actionText, index > 0 && s.secondaryText]}>{action.label}</Text></Pressable>)}</View></>}</Screen>;
 }

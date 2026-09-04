@@ -1,9 +1,14 @@
+import { requireSupabaseConfig, supabase } from "@/services/supabase";
+
 export type ProfessionalBookingStatus =
+  | "pending_payment"
   | "confirmed"
   | "checked_in"
   | "in_service"
   | "completed"
-  | "no_show";
+  | "no_show"
+  | "cancelled"
+  | "rescheduled";
 
 export type ProfessionalBooking = {
   id: string;
@@ -44,29 +49,71 @@ let bookings: ProfessionalBooking[] = [
 
 const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 120));
 
+export type ProfessionalDataMode = "demo" | "remote";
+
+const allowedTransitions: Partial<Record<ProfessionalBookingStatus, ProfessionalBookingStatus[]>> = {
+  confirmed: ["checked_in", "no_show"],
+  checked_in: ["in_service"],
+  in_service: ["completed"],
+};
+
 // Integration boundary for migration 012. Keep these functions field-agnostic
 // until its deployed schema and policies are confirmed.
-export async function fetchProfessionalProfile() {
+export async function fetchProfessionalProfile(mode: ProfessionalDataMode) {
+  if (mode === "remote")
+    throw new Error("Professional backend reads are not configured in this mobile build. Confirm migration 012 fields before enabling them.");
   await delay();
   return { ...profile, linkedServices: [...profile.linkedServices] };
 }
 
-export async function fetchAssignedBookings() {
+export async function fetchAssignedBookings(mode: ProfessionalDataMode) {
+  if (mode === "remote")
+    throw new Error("Professional backend reads are not configured in this mobile build. Confirm migration 012 fields before enabling them.");
   await delay();
   return bookings.map((booking) => ({ ...booking }));
 }
 
-export async function fetchAssignedBooking(id: string) {
+export async function fetchAssignedBooking(id: string, mode: ProfessionalDataMode) {
+  if (mode === "remote")
+    throw new Error("Professional backend reads are not configured in this mobile build. Confirm migration 012 fields before enabling them.");
   await delay();
   const booking = bookings.find((item) => item.id === id);
   return booking ? { ...booking } : null;
 }
 
-export async function updateAssignedBookingStatus(id: string, status: ProfessionalBookingStatus) {
-  await delay();
-  const booking = bookings.find((item) => item.id === id);
-  if (!booking) throw new Error("Assigned booking not found.");
-  const updated = { ...booking, status };
-  bookings = bookings.map((item) => (item.id === id ? updated : item));
-  return { ...updated };
+export async function transitionAssignedBookingStatus(input: {
+  booking: ProfessionalBooking;
+  targetStatus: ProfessionalBookingStatus;
+  reason?: string | null;
+  mode: ProfessionalDataMode;
+}) {
+  const allowed = allowedTransitions[input.booking.status] ?? [];
+  if (!allowed.includes(input.targetStatus))
+    throw new Error("This booking status change is not allowed.");
+  if (input.mode === "demo") {
+    await delay();
+    const updated = { ...input.booking, status: input.targetStatus };
+    bookings = bookings.map((item) => item.id === input.booking.id ? updated : item);
+    return updated;
+  }
+  requireSupabaseConfig();
+  const { data, error } = await supabase.rpc("transition_booking_status", {
+    p_booking_id: input.booking.id,
+    p_to_status: input.targetStatus,
+    p_reason: input.reason ?? null,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || String(row.id) !== input.booking.id || String(row.status) !== input.targetStatus)
+    throw new Error("The booking update returned an invalid response.");
+  return { ...input.booking, status: input.targetStatus };
+}
+
+export function professionalErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error);
+  if (/jwt|session|auth/i.test(message)) return "Your session expired. Please sign in again.";
+  if (/not allowed|invalid transition/i.test(message)) return "This booking status change is not allowed.";
+  if (/network|fetch|offline/i.test(message)) return "Unable to connect. Check your internet connection and try again.";
+  if (/Professional backend reads are not configured/.test(message)) return message;
+  return "Unable to complete this professional operation. Please try again.";
 }
