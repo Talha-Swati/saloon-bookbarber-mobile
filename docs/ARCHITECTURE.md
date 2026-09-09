@@ -75,7 +75,13 @@ Professional service boundary:
 - `fetchAssignedBooking(id, mode)`
 - `transitionAssignedBookingStatus(input)`
 
-Demo sessions use local mock professional data. Real sessions do not receive fabricated professional records until migration 012 fields are confirmed.
+Demo sessions (`EXPO_PUBLIC_DEMO_AUTH_BYPASS`) use local mock professional data. Real
+sessions read live data from Supabase: `professionals` (own row via
+`professionals_own_select` RLS), `professional_services` + `salon_services` (linked
+services), and `bookings` (assigned bookings, scoped by
+`bookings_professional_select_assigned` RLS — no client-side filtering by professional
+id is needed). Field mapping confirmed against
+`saloon-bookbarber-web/supabase/migrations/012_professional_phase1.sql` on 2026-09-09.
 
 Professional status transitions use only:
 

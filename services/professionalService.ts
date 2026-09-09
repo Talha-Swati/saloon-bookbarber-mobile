@@ -1,5 +1,25 @@
 import { requireSupabaseConfig, supabase } from "@/services/supabase";
 
+type Row = Record<string, any>;
+
+const timeLabel = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.valueOf())) return "";
+  const h = date.getHours();
+  const m = date.getMinutes();
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+};
+
+const isSameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+const dateLabel = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.valueOf())) return iso;
+  if (isSameDay(date, new Date())) return "today";
+  return date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+};
+
 export type ProfessionalBookingStatus =
   | "pending_payment"
   | "confirmed"
@@ -57,28 +77,97 @@ const allowedTransitions: Partial<Record<ProfessionalBookingStatus, Professional
   in_service: ["completed"],
 };
 
-// Integration boundary for migration 012. Keep these functions field-agnostic
-// until its deployed schema and policies are confirmed.
+// Integration boundary for migration 012 (professionals, professional_services, bookings
+// snapshot columns). Field mapping confirmed against
+// saloon-bookbarber-web/supabase/migrations/012_professional_phase1.sql — see
+// SESSION-REPORT.md Phase 3. RLS (professionals_own_select, bookings_professional_select_assigned)
+// scopes every query below to the signed-in professional's own row/bookings; no client-side
+// filtering by user id is needed or done.
+const bookingColumns =
+  "id, status, start_time, customer_name_snapshot, customer_phone_snapshot, service_name_snapshot, duration_minutes_snapshot";
+
+function bookingFromRow(row: Row): ProfessionalBooking {
+  return {
+    id: String(row.id),
+    customerName: row.customer_name_snapshot ?? "Customer",
+    customerPhone: row.customer_phone_snapshot ?? "",
+    serviceName: row.service_name_snapshot ?? "Service",
+    date: dateLabel(row.start_time),
+    time: timeLabel(row.start_time),
+    durationMinutes: Number(row.duration_minutes_snapshot ?? 0),
+    status: row.status as ProfessionalBookingStatus,
+  };
+}
+
 export async function fetchProfessionalProfile(mode: ProfessionalDataMode) {
-  if (mode === "remote")
-    throw new Error("Professional backend reads are not configured in this mobile build. Confirm migration 012 fields before enabling them.");
-  await delay();
-  return { ...profile, linkedServices: [...profile.linkedServices] };
+  if (mode === "demo") {
+    await delay();
+    return { ...profile, linkedServices: [...profile.linkedServices] };
+  }
+  requireSupabaseConfig();
+  const { data: prof, error } = await supabase
+    .from("professionals")
+    .select("id, display_name, specialty, is_active, salons(name)")
+    .maybeSingle();
+  if (error) throw error;
+  if (!prof) throw new Error("No professional profile is linked to this account.");
+
+  const { data: links, error: linksError } = await supabase
+    .from("professional_services")
+    .select("service_id")
+    .eq("professional_id", prof.id);
+  if (linksError) throw linksError;
+
+  const serviceIds = (links ?? []).map((link: Row) => link.service_id);
+  let linkedServices: string[] = [];
+  if (serviceIds.length) {
+    const { data: services, error: servicesError } = await supabase
+      .from("salon_services")
+      .select("name")
+      .in("id", serviceIds);
+    if (servicesError) throw servicesError;
+    linkedServices = (services ?? []).map((service: Row) => service.name);
+  }
+
+  const salon = Array.isArray(prof.salons) ? prof.salons[0] : prof.salons;
+  return {
+    id: String(prof.id),
+    name: prof.display_name,
+    salonName: salon?.name ?? "",
+    specialty: prof.specialty,
+    linkedServices,
+    working: Boolean(prof.is_active),
+  };
 }
 
 export async function fetchAssignedBookings(mode: ProfessionalDataMode) {
-  if (mode === "remote")
-    throw new Error("Professional backend reads are not configured in this mobile build. Confirm migration 012 fields before enabling them.");
-  await delay();
-  return bookings.map((booking) => ({ ...booking }));
+  if (mode === "demo") {
+    await delay();
+    return bookings.map((booking) => ({ ...booking }));
+  }
+  requireSupabaseConfig();
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(bookingColumns)
+    .order("start_time", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(bookingFromRow);
 }
 
 export async function fetchAssignedBooking(id: string, mode: ProfessionalDataMode) {
-  if (mode === "remote")
-    throw new Error("Professional backend reads are not configured in this mobile build. Confirm migration 012 fields before enabling them.");
-  await delay();
-  const booking = bookings.find((item) => item.id === id);
-  return booking ? { ...booking } : null;
+  if (mode === "demo") {
+    await delay();
+    const booking = bookings.find((item) => item.id === id);
+    return booking ? { ...booking } : null;
+  }
+  requireSupabaseConfig();
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(bookingColumns)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? bookingFromRow(data) : null;
 }
 
 export async function transitionAssignedBookingStatus(input: {
@@ -114,6 +203,6 @@ export function professionalErrorMessage(error: unknown) {
   if (/jwt|session|auth/i.test(message)) return "Your session expired. Please sign in again.";
   if (/not allowed|invalid transition/i.test(message)) return "This booking status change is not allowed.";
   if (/network|fetch|offline/i.test(message)) return "Unable to connect. Check your internet connection and try again.";
-  if (/Professional backend reads are not configured/.test(message)) return message;
+  if (/No professional profile is linked/.test(message)) return message;
   return "Unable to complete this professional operation. Please try again.";
 }

@@ -54,6 +54,9 @@ These checks require real seeded users and deployed migration 012 contracts:
 ## Current Known Limits
 
 - Notifications and reviews still use local mock data.
-- Professional read APIs are intentionally disabled for real sessions until migration 012 fields are confirmed.
+- Professional read APIs now hit Supabase directly for real (non-demo) sessions
+  (`professionals`, `professional_services`/`salon_services`, `bookings` — see
+  ARCHITECTURE.md). Not yet exercised against a live seeded DB in this session (see
+  "Security/RLS Verification Needed" below — still static analysis only).
 - Physical Android device and emulator testing require a connected device outside this repository.
 
