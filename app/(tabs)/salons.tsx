@@ -1,4 +1,4 @@
-﻿import { StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import { SalonCard } from "@/components/SalonCard";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
@@ -31,7 +31,7 @@ export default function Salons() {
         Choose a salon, then select a service and available slot.
       </Text>
       <View style={s.search}>
-        <Text>⌕</Text>
+        <Text>?</Text>
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -85,5 +85,5 @@ const s = StyleSheet.create({
   },
   state: { alignItems: "center", padding: spacing.xl },
   stateText: { color: colors.muted, textAlign: "center" },
-  retry: { color: colors.dark, fontWeight: "800", marginTop: spacing.md },
+  retry: { color: colors.deepGreen, fontWeight: "800", marginTop: spacing.md },
 });

@@ -42,7 +42,7 @@ export default function SignIn() {
       <TextInput autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor={colors.muted} style={s.input} />
       <TextInput secureTextEntry value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor={colors.muted} style={s.input} />
       <Pressable disabled={busy} onPress={submit} style={[s.primary, busy && s.disabled]}>
-        {busy ? <ActivityIndicator color="#FFF" /> : <Text style={s.primaryText}>Sign in</Text>}
+        {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={s.primaryText}>Sign in</Text>}
       </Pressable>
       <Pressable disabled={busy} onPress={() => router.replace({ pathname: "/auth/sign-up", params: professionalEntry ? { role: "professional" } : {} })} style={s.link}><Text style={s.linkText}>Create a {professionalEntry ? "Professional" : "customer"} account</Text></Pressable>
     </Screen>
@@ -50,13 +50,13 @@ export default function SignIn() {
 }
 
 const s = StyleSheet.create({
-  back: { color: colors.dark, fontWeight: "700", marginBottom: spacing.xl },
+  back: { color: colors.deepGreen, fontWeight: "700", marginBottom: spacing.xl },
   title: { color: colors.text, fontSize: 30, fontWeight: "800" },
   note: { color: colors.muted, marginTop: 8, marginBottom: spacing.lg },
   input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, paddingHorizontal: spacing.md, color: colors.text, marginBottom: spacing.sm },
   primary: { minHeight: 52, backgroundColor: colors.primary, borderRadius: radius.md, alignItems: "center", justifyContent: "center", marginTop: spacing.sm },
-  primaryText: { color: "#FFF", fontWeight: "800" },
+  primaryText: { color: colors.onPrimary, fontWeight: "800" },
   disabled: { opacity: 0.5 },
   link: { alignItems: "center", padding: spacing.md },
-  linkText: { color: colors.dark, fontWeight: "700" },
+  linkText: { color: colors.deepGreen, fontWeight: "700" },
 });

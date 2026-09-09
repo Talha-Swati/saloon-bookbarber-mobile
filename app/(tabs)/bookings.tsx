@@ -1,4 +1,4 @@
-﻿import { router } from "expo-router";
+import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { BookingCard } from "@/components/BookingCard";
 import { Screen } from "@/components/Screen";
@@ -93,9 +93,9 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  tabOn: { backgroundColor: colors.soft, borderColor: colors.primary },
+  tabOn: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
   tabText: { fontSize: 12, color: colors.muted, fontWeight: "700" },
-  tabTextOn: { color: colors.dark },
+  tabTextOn: { color: colors.deepGreen },
   state: { color: colors.muted, textAlign: "center", padding: spacing.xl },
   review: {
     alignSelf: "flex-end",
@@ -105,5 +105,5 @@ const s = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: spacing.md,
   },
-  reviewText: { color: colors.dark, fontWeight: "800" },
+  reviewText: { color: colors.deepGreen, fontWeight: "800" },
 });

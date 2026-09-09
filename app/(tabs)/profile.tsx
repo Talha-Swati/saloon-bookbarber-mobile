@@ -1,4 +1,4 @@
-ï»¿import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 const menu = [
@@ -79,7 +79,7 @@ export default function Profile() {
             style={s.primary}
           >
             <Text style={s.primaryText}>
-              {busy ? "Signing outâ€¦" : "Logout"}
+              {busy ? "Signing out…" : "Logout"}
             </Text>
           </Pressable>
         </>
@@ -115,7 +115,7 @@ export default function Profile() {
             style={[s.primary, ((!configured && !demoBypassEnabled) || busy) && { opacity: 0.45 }]}
           >
             <Text style={s.primaryText}>
-              {busy ? "Please waitâ€¦" : "Sign in"}
+              {busy ? "Please wait…" : "Sign in"}
             </Text>
           </Pressable>
           <Pressable
@@ -146,7 +146,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  initials: { color: "#FFF", fontSize: 20, fontWeight: "800" },
+  initials: { color: colors.onPrimary, fontSize: 20, fontWeight: "800" },
   name: { color: colors.text, fontSize: 20, fontWeight: "700" },
   muted: { color: colors.muted, marginTop: 4 },
   note: { color: colors.muted, lineHeight: 20, marginVertical: spacing.lg },
@@ -168,7 +168,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginTop: spacing.sm,
   },
-  primaryText: { color: "#FFF", fontWeight: "800" },
+  primaryText: { color: colors.onPrimary, fontWeight: "800" },
   secondary: {
     minHeight: 52,
     borderWidth: 1,
@@ -178,5 +178,5 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginTop: spacing.sm,
   },
-  secondaryText: { color: colors.dark, fontWeight: "800" },
+  secondaryText: { color: colors.deepGreen, fontWeight: "800" },
 });

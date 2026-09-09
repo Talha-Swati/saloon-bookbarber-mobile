@@ -1,4 +1,4 @@
-﻿import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
 import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
@@ -28,16 +28,16 @@ export default function Confirmation() {
     <Screen>
       <View style={s.success}>
         <View style={s.check}>
-          <Text style={s.checkText}>✓</Text>
+          <Text style={s.checkText}>?</Text>
         </View>
         <Text style={s.title}>Booking confirmed</Text>
         <Text style={s.subtitle}>Your appointment is reserved.</Text>
-        <Text style={s.id}>BOOKING ID · {p.id}</Text>
+        <Text style={s.id}>BOOKING ID � {p.id}</Text>
       </View>
       <View style={s.card}>
         <Row label="Salon" value={p.salon} />
         <Row label="Service" value={p.service} />
-        <Row label="Date & time" value={p.date + " · " + p.time} />
+        <Row label="Date & time" value={p.date + " � " + p.time} />
         <Row
           label="Total amount"
           value={"PKR " + Number(p.total).toLocaleString()}
@@ -86,12 +86,12 @@ const s = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: colors.soft,
+    backgroundColor: colors.primarySoft,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: spacing.md,
   },
-  checkText: { fontSize: 36, color: colors.dark, fontWeight: "800" },
+  checkText: { fontSize: 36, color: colors.deepGreen, fontWeight: "800" },
   title: {
     fontSize: 28,
     fontWeight: "800",
@@ -100,7 +100,7 @@ const s = StyleSheet.create({
   },
   subtitle: { color: colors.muted, marginTop: 6 },
   id: {
-    color: colors.dark,
+    color: colors.deepGreen,
     fontWeight: "800",
     fontSize: 11,
     letterSpacing: 1,
@@ -128,7 +128,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginTop: spacing.xl,
   },
-  primaryText: { color: "#FFF", fontWeight: "800" },
+  primaryText: { color: colors.onPrimary, fontWeight: "800" },
   secondary: {
     minHeight: 52,
     borderWidth: 1,
@@ -138,5 +138,5 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginTop: spacing.sm,
   },
-  secondaryText: { color: colors.dark, fontWeight: "800" },
+  secondaryText: { color: colors.deepGreen, fontWeight: "800" },
 });

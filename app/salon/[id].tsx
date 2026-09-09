@@ -1,4 +1,4 @@
-ï»¿import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { SectionHeader } from "@/components/SectionHeader";
@@ -30,7 +30,7 @@ export default function SalonDetail() {
     return (
       <Screen>
         <Pressable onPress={() => router.back()}>
-          <Text style={s.backText}>â€¹</Text>
+          <Text style={s.backText}>‹</Text>
         </Pressable>
         <Text style={s.title}>{error || "Salon not found."}</Text>
       </Screen>
@@ -39,7 +39,7 @@ export default function SalonDetail() {
     <Screen>
       <View style={[s.cover, { backgroundColor: salon.accent }]}>
         <Pressable onPress={() => router.back()} style={s.back}>
-          <Text style={s.backText}>â€¹</Text>
+          <Text style={s.backText}>‹</Text>
         </Pressable>
         <Text style={s.mono}>{salon.name[0]}</Text>
       </View>
@@ -55,7 +55,7 @@ export default function SalonDetail() {
         </Text>
       </View>
       <Text style={s.rating}>
-        â˜… {salon.rating} <Text style={s.muted}>({salon.reviews} reviews)</Text>
+        ? {salon.rating} <Text style={s.muted}>({salon.reviews} reviews)</Text>
       </Text>
       <Text style={s.description}>{salon.description}</Text>
       <SectionHeader title="Services" />
@@ -67,7 +67,7 @@ export default function SalonDetail() {
                 <Text style={s.serviceName}>{service.name}</Text>
                 <Text style={s.duration}>
                   {service.duration} min
-                  {service.category ? ` Â· ${service.category}` : ""}
+                  {service.category ? ` · ${service.category}` : ""}
                 </Text>
               </View>
               <Text style={s.price}>PKR {service.price.toLocaleString()}</Text>
@@ -107,7 +107,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.lg,
   },
-  mono: { fontSize: 68, color: "#FFF", fontWeight: "800" },
+  mono: { fontSize: 68, color: colors.onPrimary, fontWeight: "800" },
   back: {
     position: "absolute",
     top: 12,
@@ -130,8 +130,8 @@ const s = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
   },
-  open: { color: colors.dark, backgroundColor: colors.soft },
-  closed: { color: "#991B1B", backgroundColor: "#FEE2E2" },
+  open: { color: colors.deepGreen, backgroundColor: colors.primarySoft },
+  closed: { color: colors.danger, backgroundColor: colors.dangerSoft },
   rating: { color: colors.warning, fontWeight: "700", marginTop: spacing.sm },
   muted: { color: colors.muted, fontWeight: "400" },
   description: {
@@ -155,7 +155,7 @@ const s = StyleSheet.create({
   },
   serviceName: { color: colors.text, fontWeight: "700", fontSize: 15 },
   duration: { color: colors.muted, fontSize: 12, marginTop: 4 },
-  price: { color: colors.dark, fontWeight: "800" },
+  price: { color: colors.deepGreen, fontWeight: "800" },
   serviceDescription: {
     color: colors.muted,
     lineHeight: 19,
@@ -169,7 +169,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginTop: spacing.md,
   },
-  bookText: { color: "#FFF", fontWeight: "800" },
+  bookText: { color: colors.onPrimary, fontWeight: "800" },
   review: {
     backgroundColor: colors.surface,
     borderBottomWidth: 1,

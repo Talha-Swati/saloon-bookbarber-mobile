@@ -1,4 +1,4 @@
-ï»¿import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
@@ -143,7 +143,7 @@ export default function BookingFlow() {
           style={s.backButton}
           onPress={() => (step > 1 ? setStep(step - 1) : router.back())}
         >
-          <Text style={s.back}>â€¹</Text>
+          <Text style={s.back}>‹</Text>
         </Pressable>
         <Text style={s.navTitle}>Book appointment</Text>
         <View style={{ width: 36 }} />
@@ -242,7 +242,7 @@ export default function BookingFlow() {
         ]}
       >
         <Text style={s.primaryText}>
-          {busy ? "Confirmingâ€¦" : step === 4 ? "Confirm booking" : "Continue"}
+          {busy ? "Confirming…" : step === 4 ? "Confirm booking" : "Continue"}
         </Text>
       </Pressable>
     </Screen>
@@ -284,7 +284,7 @@ function Summary({
       <Text style={s.service}>{service}</Text>
       {date && (
         <Text style={s.rowText}>
-          {date} Â· {time}
+          {date} · {time}
         </Text>
       )}
       <View style={s.line}>
@@ -333,7 +333,7 @@ const s = StyleSheet.create({
   },
   dotActive: { backgroundColor: colors.primary },
   dotText: { color: colors.muted, fontWeight: "700" },
-  dotTextActive: { color: "#FFF" },
+  dotTextActive: { color: colors.onPrimary },
   kicker: {
     color: colors.primary,
     fontSize: 11,
@@ -384,9 +384,9 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  choiceOn: { backgroundColor: colors.soft, borderColor: colors.primary },
+  choiceOn: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
   choiceText: { color: colors.text, fontWeight: "600" },
-  choiceTextOn: { color: colors.dark, fontWeight: "800" },
+  choiceTextOn: { color: colors.deepGreen, fontWeight: "800" },
   section: {
     fontSize: 17,
     fontWeight: "700",
@@ -412,6 +412,6 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginTop: spacing.xl,
   },
-  primaryText: { color: "#FFF", fontWeight: "800", fontSize: 16 },
+  primaryText: { color: colors.onPrimary, fontWeight: "800", fontSize: 16 },
   disabled: { opacity: 0.4 },
 });

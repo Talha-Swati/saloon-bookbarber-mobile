@@ -1,4 +1,4 @@
-ï»¿import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
@@ -50,7 +50,7 @@ export default function BookingDetails() {
     <Screen>
       <Header />
       <View style={s.heading}>
-        <Text style={s.kicker}>BOOKING ID Â· {booking.id}</Text>
+        <Text style={s.kicker}>BOOKING ID · {booking.id}</Text>
         <Text style={s.title}>{booking.serviceName}</Text>
         <Text style={s.salon}>{booking.salonName}</Text>
         <Text
@@ -67,7 +67,7 @@ export default function BookingDetails() {
         </Text>
       </View>
       <View style={s.card}>
-        <Row label="Date & time" value={booking.date + " Â· " + booking.time} />
+        <Row label="Date & time" value={booking.date + " · " + booking.time} />
         <Row label="Duration" value={booking.duration + " minutes"} />
         <Row label="Amount" value={"PKR " + booking.price.toLocaleString()} />
         <Row
@@ -80,7 +80,7 @@ export default function BookingDetails() {
         />
         <Row
           label="Payment"
-          value={booking.paymentMethod + " Â· " + booking.paymentStatus}
+          value={booking.paymentMethod + " · " + booking.paymentStatus}
         />
       </View>
       <Text style={s.section}>Activity</Text>
@@ -119,7 +119,7 @@ function Header() {
         style={s.backButton}
         onPress={() => router.back()}
       >
-        <Text style={s.back}>â€¹</Text>
+        <Text style={s.back}>‹</Text>
       </Pressable>
       <Text style={s.navTitle}>Booking details</Text>
       <View style={{ width: 36 }} />
@@ -177,7 +177,7 @@ const s = StyleSheet.create({
   navTitle: { fontWeight: "700", color: colors.text },
   heading: { marginVertical: spacing.lg },
   kicker: {
-    color: colors.dark,
+    color: colors.deepGreen,
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1,
@@ -198,18 +198,18 @@ const s = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
   },
-  up: { color: colors.dark, backgroundColor: colors.soft },
-  done: { color: colors.muted, backgroundColor: "#F1F5F9" },
-  cancelled: { color: "#991B1B", backgroundColor: "#FEE2E2" },
+  up: { color: colors.deepGreen, backgroundColor: colors.primarySoft },
+  done: { color: colors.muted, backgroundColor: colors.neutralSoft },
+  cancelled: { color: colors.danger, backgroundColor: colors.dangerSoft },
   notice: {
-    backgroundColor: colors.soft,
-    color: colors.dark,
+    backgroundColor: colors.primarySoft,
+    color: colors.deepGreen,
     padding: 12,
     borderRadius: radius.sm,
     marginBottom: spacing.md,
     fontWeight: "700",
   },
-  cancelNotice: { backgroundColor: "#FEE2E2", color: "#991B1B" },
+  cancelNotice: { backgroundColor: colors.dangerSoft, color: colors.danger },
   card: {
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -253,10 +253,10 @@ const s = StyleSheet.create({
     justifyContent: "center",
     borderRadius: radius.sm,
   },
-  danger: { backgroundColor: "#FEE2E2" },
-  dangerText: { color: "#991B1B", fontWeight: "800" },
+  danger: { backgroundColor: colors.dangerSoft },
+  dangerText: { color: colors.danger, fontWeight: "800" },
   outline: { borderWidth: 1, borderColor: colors.primary },
-  outlineText: { color: colors.dark, fontWeight: "800" },
+  outlineText: { color: colors.deepGreen, fontWeight: "800" },
   primary: {
     minHeight: 50,
     backgroundColor: colors.primary,
@@ -265,7 +265,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginTop: spacing.md,
   },
-  primaryText: { color: "#FFF", fontWeight: "800" },
+  primaryText: { color: colors.onPrimary, fontWeight: "800" },
   contact: {
     minHeight: 48,
     alignItems: "center",
@@ -302,8 +302,8 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  choiceOn: { backgroundColor: colors.soft, borderColor: colors.primary },
+  choiceOn: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
   choiceText: { color: colors.text, fontWeight: "600" },
-  choiceTextOn: { color: colors.dark, fontWeight: "800" },
+  choiceTextOn: { color: colors.deepGreen, fontWeight: "800" },
   close: { alignItems: "center", padding: 15 },
 });

@@ -1,4 +1,4 @@
-﻿import { router } from "expo-router";
+import { router } from "expo-router";
 import {
   Pressable,
   ScrollView,
@@ -64,13 +64,13 @@ export default function Home() {
           onPress={() => router.push("/notifications")}
           style={s.avatar}
         >
-          <Text style={s.bell}>●</Text>
-          <Text style={s.bellIcon}>♢</Text>
+          <Text style={s.bell}>?</Text>
+          <Text style={s.bellIcon}>?</Text>
         </Pressable>
       </View>
       <Text style={s.title}>Look sharp. Feel your best.</Text>
       <View style={s.search}>
-        <Text style={{ fontSize: 22 }}>⌕</Text>
+        <Text style={{ fontSize: 22 }}>?</Text>
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -100,7 +100,7 @@ export default function Home() {
               >
                 {serviceCategories.map((name) => (
                   <View key={name} style={s.category}>
-                    <Text style={{ fontSize: 24 }}>✂️</Text>
+                    <Text style={{ fontSize: 24 }}>??</Text>
                     <Text style={s.categoryName}>{name}</Text>
                   </View>
                 ))}
@@ -146,11 +146,11 @@ const s = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.soft,
+    backgroundColor: colors.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { color: colors.dark, fontWeight: "800" },
+  avatarText: { color: colors.deepGreen, fontWeight: "800" },
   bell: {
     position: "absolute",
     right: 9,
@@ -158,7 +158,7 @@ const s = StyleSheet.create({
     color: colors.primary,
     fontSize: 9,
   },
-  bellIcon: { color: colors.dark, fontSize: 24, fontWeight: "800" },
+  bellIcon: { color: colors.deepGreen, fontSize: 24, fontWeight: "800" },
   title: {
     color: colors.text,
     fontSize: 29,
@@ -192,5 +192,5 @@ const s = StyleSheet.create({
   },
   categoryName: { color: colors.text, fontSize: 12, fontWeight: "600" },
   empty: { alignItems: "center", padding: spacing.xl },
-  retry: { color: colors.dark, fontWeight: "800", marginTop: spacing.md },
+  retry: { color: colors.deepGreen, fontWeight: "800", marginTop: spacing.md },
 });
