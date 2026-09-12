@@ -68,6 +68,21 @@ Customer service boundary:
 
 Customer booking remains `Salon -> Service -> Capacity -> Slot`. The existing customer booking RPC contract was not changed.
 
+`services/salonService.ts` was fixed 2026-09-11 (previously threw/silently degraded):
+`fetchAvailability`, `fetchMyBookings`, `fetchBooking`, and `createBooking` embedded a
+`services` relation that doesn't exist (the real table/embed key is `salon_services` —
+`bookings.service_id` references `salon_services`, not a table called `services`),
+which made every one of those Supabase queries fail outright with a PostgREST
+"could not find a relationship" error. Also fixed: `bookings` has no `booking_date`
+column (date is derived from `start_time`), the snapshot columns are
+`service_price_snapshot`/`duration_minutes_snapshot` (not
+`total_amount_snapshot`/`duration_snapshot_minutes`), there is no deposit/payment
+system yet so `deposit` is always `0` and `paymentMethod`/`paymentStatus` are fixed
+"At salon"/"Pay at salon" strings rather than referencing nonexistent columns, and
+`fetchAvailability` now checks the RPC's real `available_capacity` field instead of a
+nonexistent `available`/`is_available` field (previously every slot showed as
+bookable regardless of remaining capacity).
+
 Professional service boundary:
 
 - `fetchProfessionalProfile(mode)`

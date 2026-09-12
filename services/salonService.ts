@@ -9,8 +9,10 @@ const timeLabel = (value: string) => {
   if (Number.isNaN(h)) return value;
   return `${h % 12 || 12}:${String(m || 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
 };
+// `bookings` has no separate date column (supabase/migrations/002_booking_commission.sql)
+// — the date is derived from the `start_time` timestamptz.
 const dateLabel = (value: string) => {
-  const date = new Date(`${value}T00:00:00`);
+  const date = new Date(value);
   return Number.isNaN(date.valueOf())
     ? value
     : date.toLocaleDateString(undefined, {
@@ -146,9 +148,12 @@ export async function fetchAvailability(
   );
   return (data ?? [])
     .map((row) => ({
-      startTime: row.start_time ?? row.slot_start ?? row.time,
-      endTime: row.end_time ?? row.slot_end,
-      available: row.available ?? row.is_available ?? true,
+      startTime: row.slot_start ?? row.start_time ?? row.time,
+      endTime: row.slot_end ?? row.end_time,
+      // get_service_availability (supabase/migrations/007_booking_phase1.sql) returns
+      // `available_capacity`, not `available`/`is_available` — a slot is bookable only
+      // when capacity remains.
+      available: number(row.available_capacity) > 0,
     }))
     .filter((x) => x.available && x.startTime);
 }
@@ -187,59 +192,53 @@ export async function createBooking(input: {
   const rpcRow = Array.isArray(data) ? data[0] : data;
   const bookingId =
     typeof rpcRow === "string" ? rpcRow : (rpcRow.booking_id ?? rpcRow.id);
+  // salon_id -> salons(id) and service_id -> salon_services(id): the embed key is the
+  // referenced table's name, so "services" (no such table) never matched anything.
   const { data: saved, error } = await supabase
     .from("bookings")
-    .select("*, salons(name), services(name)")
+    .select("*, salons(name), salon_services(name,price)")
     .eq("id", bookingId)
     .single();
   if (error) throw error;
   const salon = Array.isArray(saved.salons) ? saved.salons[0] : saved.salons;
-  const service = Array.isArray(saved.services)
-    ? saved.services[0]
-    : saved.services;
+  const service = Array.isArray(saved.salon_services)
+    ? saved.salon_services[0]
+    : saved.salon_services;
+  // No deposit/payment system exists yet (see docs/PAYMENTS-SCOPING.md in the web
+  // repo) — every booking is pay-at-salon in full, so deposit is always 0.
+  const total = number(saved.service_price_snapshot ?? service?.price);
   return {
     id: String(saved.id),
-    salonName: saved.salon_name_snapshot ?? salon?.name ?? "",
+    salonName: salon?.name ?? "",
     serviceName: saved.service_name_snapshot ?? service?.name ?? "",
-    bookingDate: saved.booking_date ?? input.bookingDate,
+    bookingDate: saved.start_time ?? input.bookingDate,
     startTime: saved.start_time ?? input.startTime,
-    total: number(
-      saved.total_amount_snapshot ?? saved.total_amount ?? saved.price_snapshot,
-    ),
-    deposit: number(saved.deposit_amount_snapshot ?? saved.deposit_amount),
-    remaining: number(
-      saved.remaining_amount_snapshot ??
-        saved.remaining_amount ??
-        number(
-          saved.total_amount_snapshot ??
-            saved.total_amount ??
-            saved.price_snapshot,
-        ) - number(saved.deposit_amount_snapshot ?? saved.deposit_amount),
-    ),
+    total,
+    deposit: 0,
+    remaining: total,
   };
 }
 const bookingFrom = (row: Row): Booking => {
   const salon = Array.isArray(row.salons) ? row.salons[0] : row.salons;
-  const service = Array.isArray(row.services) ? row.services[0] : row.services;
+  const service = Array.isArray(row.salon_services)
+    ? row.salon_services[0]
+    : row.salon_services;
   const status = String(row.status).toLowerCase();
   return {
     id: String(row.id),
-    salonName: row.salon_name_snapshot ?? salon?.name ?? "Salon",
+    salonName: salon?.name ?? "Salon",
     serviceName: row.service_name_snapshot ?? service?.name ?? "Service",
-    date: dateLabel(row.booking_date),
+    date: dateLabel(row.start_time),
     time: timeLabel(row.start_time),
     duration: number(
-      row.duration_snapshot_minutes ?? service?.duration_minutes,
+      row.duration_minutes_snapshot ?? service?.duration_minutes,
     ),
-    price: number(
-      row.total_amount_snapshot ?? row.total_amount ?? row.price_snapshot,
-    ),
-    deposit: number(row.deposit_amount_snapshot ?? row.deposit_amount),
-    paymentMethod: row.payment_method ?? "At salon",
-    paymentStatus:
-      number(row.deposit_amount_snapshot ?? row.deposit_amount) > 0
-        ? "Deposit paid"
-        : "Pay at salon",
+    price: number(row.service_price_snapshot ?? service?.price),
+    // No deposit/payment system exists yet (see docs/PAYMENTS-SCOPING.md in the web
+    // repo) — every booking is pay-at-salon in full.
+    deposit: 0,
+    paymentMethod: "At salon",
+    paymentStatus: "Pay at salon",
     status:
       status === "completed"
         ? "completed"
@@ -252,8 +251,7 @@ export async function fetchMyBookings(): Promise<Booking[]> {
   requireSupabaseConfig();
   const { data, error } = await supabase
     .from("bookings")
-    .select("*, salons(name), services(name,duration_minutes)")
-    .order("booking_date", { ascending: false })
+    .select("*, salons(name), salon_services(name,duration_minutes,price)")
     .order("start_time", { ascending: false });
   if (error) throw error;
   return (data ?? []).map(bookingFrom);
@@ -262,7 +260,7 @@ export async function fetchBooking(id: string): Promise<Booking | null> {
   requireSupabaseConfig();
   const { data, error } = await supabase
     .from("bookings")
-    .select("*, salons(name), services(name,duration_minutes)")
+    .select("*, salons(name), salon_services(name,duration_minutes,price)")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
