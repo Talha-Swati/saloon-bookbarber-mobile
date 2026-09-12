@@ -83,6 +83,22 @@ system yet so `deposit` is always `0` and `paymentMethod`/`paymentStatus` are fi
 nonexistent `available`/`is_available` field (previously every slot showed as
 bookable regardless of remaining capacity).
 
+`fetchAvailability` and `createBooking` were fixed again 2026-09-12
+(fix-booking-rpc-2026-09-12): both called their RPCs with a "prefixed" argument set
+(e.g. `p_salon_id`, `p_booking_date`) and, on a `PGRST202` "function not found" error,
+retried with an unprefixed set (`salon_id`, `booking_date`) — for
+`create_customer_booking`, *neither* set matched its real deployed signature
+(`p_service_id`, `p_start_time`, `p_notes`, `p_booking_source` — verified against
+`saloon-bookbarber-web/supabase/migrations/007_booking_phase1.sql`, unchanged through
+`011`; there is no `p_salon_id`/`p_booking_date` parameter, the salon is resolved
+server-side from the service), so every real booking attempt failed outright regardless
+of which set PostgREST tried. Fixed by calling both RPCs directly with their verified
+real argument names and removing the fallback dance (`rpcWithArgs`) entirely — it
+existed to guess around an unverified signature, which is what caused this bug.
+`get_service_availability`'s "prefixed" set (`p_salon_id`, `p_service_id`,
+`p_booking_date`) was actually already correct; only the never-triggered fallback
+branch was dead weight.
+
 Professional service boundary:
 
 - `fetchProfessionalProfile(mode)`

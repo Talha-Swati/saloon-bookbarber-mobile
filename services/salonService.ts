@@ -120,39 +120,30 @@ export async function fetchSalon(id: string): Promise<Salon | null> {
   ]);
   return salonFrom(data, services, hours);
 }
-async function rpcWithArgs<T>(
-  name: string,
-  prefixed: Row,
-  plain: Row,
-): Promise<T> {
-  let result = await supabase.rpc(name, prefixed);
-  if (result.error?.code === "PGRST202")
-    result = await supabase.rpc(name, plain);
-  if (result.error) throw result.error;
-  return result.data as T;
-}
+// get_service_availability(p_salon_id uuid, p_service_id uuid, p_booking_date date) —
+// verified character-for-character against saloon-bookbarber-web/supabase/migrations
+// /007_booking_phase1.sql (unchanged by every later migration that touches this
+// function's body). Called directly with its real argument names — no prefixed/plain
+// fallback: that pattern existed to guess around an unverified signature, and guessing
+// is exactly what caused the create_customer_booking bug below.
 export async function fetchAvailability(
   salonId: string,
   serviceId: string,
   bookingDate: string,
 ): Promise<AvailabilitySlot[]> {
   requireSupabaseConfig();
-  const data = await rpcWithArgs<any[]>(
-    "get_service_availability",
-    {
-      p_salon_id: salonId,
-      p_service_id: serviceId,
-      p_booking_date: bookingDate,
-    },
-    { salon_id: salonId, service_id: serviceId, booking_date: bookingDate },
-  );
-  return (data ?? [])
+  const { data, error } = await supabase.rpc("get_service_availability", {
+    p_salon_id: salonId,
+    p_service_id: serviceId,
+    p_booking_date: bookingDate,
+  });
+  if (error) throw error;
+  return ((data ?? []) as Row[])
     .map((row) => ({
-      startTime: row.slot_start ?? row.start_time ?? row.time,
-      endTime: row.slot_end ?? row.end_time,
-      // get_service_availability (supabase/migrations/007_booking_phase1.sql) returns
-      // `available_capacity`, not `available`/`is_available` — a slot is bookable only
-      // when capacity remains.
+      startTime: row.slot_start,
+      endTime: row.slot_end,
+      // Returns `available_capacity`, not `available`/`is_available` — a slot is
+      // bookable only when capacity remains.
       available: number(row.available_capacity) > 0,
     }))
     .filter((x) => x.available && x.startTime);
@@ -167,6 +158,18 @@ export type CreatedBooking = {
   deposit: number;
   remaining: number;
 };
+// create_customer_booking(p_service_id uuid, p_start_time timestamptz, p_notes text
+// default null, p_booking_source booking_source default 'customer_app') — verified
+// character-for-character against 007_booking_phase1.sql (unchanged by 008-011, which
+// only patch the function body's internal validation logic via pg_get_functiondef,
+// never its parameter list). There is no p_salon_id or p_booking_date parameter — the
+// salon is resolved server-side from the service (v_service.salon_id in the function
+// body), which is also why input.salonId/input.bookingDate below are accepted from the
+// caller but not sent to the RPC. The previous prefixed ({p_salon_id, p_booking_date,
+// ...}) and plain ({salon_id, booking_date, ...}) argument sets both included those two
+// nonexistent parameters, so every booking attempt failed with a "could not find the
+// function" error regardless of which one PostgREST tried — this was a real,
+// previously-undiscovered break in the customer booking flow, not a hypothetical one.
 export async function createBooking(input: {
   salonId: string;
   serviceId: string;
@@ -174,21 +177,11 @@ export async function createBooking(input: {
   startTime: string;
 }): Promise<CreatedBooking> {
   requireSupabaseConfig();
-  const data = await rpcWithArgs<string | Row | Row[]>(
-    "create_customer_booking",
-    {
-      p_salon_id: input.salonId,
-      p_service_id: input.serviceId,
-      p_booking_date: input.bookingDate,
-      p_start_time: input.startTime,
-    },
-    {
-      salon_id: input.salonId,
-      service_id: input.serviceId,
-      booking_date: input.bookingDate,
-      start_time: input.startTime,
-    },
-  );
+  const { data, error: rpcError } = await supabase.rpc("create_customer_booking", {
+    p_service_id: input.serviceId,
+    p_start_time: input.startTime,
+  });
+  if (rpcError) throw rpcError;
   const rpcRow = Array.isArray(data) ? data[0] : data;
   const bookingId =
     typeof rpcRow === "string" ? rpcRow : (rpcRow.booking_id ?? rpcRow.id);
