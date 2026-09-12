@@ -110,6 +110,18 @@ supabase.rpc("transition_booking_status", {
 
 The mobile app must not call `supabase.from("bookings").update(...)` for professional status changes.
 
+Booking-sync session (2026-09-12): `app/professional/index.tsx` and
+`app/professional/bookings.tsx` previously only refreshed on `useFocusEffect`
+(navigate away and back). Both now also call
+`subscribeToAssignedBookings(professionalId, onChange)` while focused — a
+`postgres_changes` subscription on `bookings` filtered by `professional_id`,
+same pattern as the web repo's
+`components/employee/EmployeeNotificationBell.tsx` — so a booking a customer
+makes, or a status change made from the salon-admin dashboard, appears
+immediately without navigating away and back. RLS
+(`bookings_professional_select_assigned`) already scopes this correctly; the
+filter is an optimization, not the security boundary.
+
 ## Required Backend Contracts Next
 
 - Read authenticated professional profile.
