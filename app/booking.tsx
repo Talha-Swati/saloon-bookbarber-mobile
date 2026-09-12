@@ -4,10 +4,10 @@ import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 import { ActivityIndicator, Alert } from "react-native";
-import { AvailabilitySlot, Salon } from "@/types";
+import { AvailabilitySlot, Salon, Service } from "@/types";
 import {
   bookingErrorMessage,
-  createBooking,
+  createBookingGroup,
   fetchAvailability,
   fetchSalon,
 } from "@/services/salonService";
@@ -25,7 +25,7 @@ const dates = Array.from({ length: 7 }, (_, i) => {
   };
 });
 export default function BookingFlow() {
-  const p = useLocalSearchParams<{ salonId: string; serviceId: string }>();
+  const p = useLocalSearchParams<{ salonId: string; serviceIds: string }>();
   const { session: activeSession, role } = useAuth();
   const session = role === "customer" ? activeSession : null;
   const [salon, setSalon] = useState<Salon | null>(null);
@@ -37,6 +37,7 @@ export default function BookingFlow() {
   const [slotLoading, setSlotLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const serviceIds = (p.serviceIds ?? "").split(",").filter(Boolean);
   useEffect(() => {
     if (!p.salonId) return;
     fetchSalon(p.salonId)
@@ -57,14 +58,31 @@ export default function BookingFlow() {
     );
     return () => subscription.remove();
   }, [step]);
-  const service = salon?.services.find((x) => x.id === p.serviceId);
+  // Order reflects the order services were selected in on the salon screen, which
+  // is also the order they'll be performed in for the visit.
+  const services: Service[] = serviceIds
+    .map((id) => salon?.services.find((x) => x.id === id))
+    .filter((x): x is Service => Boolean(x));
+  const firstService = services[0];
+  const totalPrice = services.reduce((sum, x) => sum + x.price, 0);
+  const totalDuration = services.reduce((sum, x) => sum + x.duration, 0);
+  // Client-side estimate only, for the review step â€” the server (create_customer_
+  // booking_group) computes and saves the real per-service times on confirm.
+  const estimatedSchedule = (startIso: string) => {
+    let cursor = new Date(startIso);
+    return services.map((svc) => {
+      const start = new Date(cursor);
+      cursor = new Date(cursor.getTime() + svc.duration * 60_000);
+      return { service: svc, start, end: new Date(cursor) };
+    });
+  };
   const loadSlots = async () => {
-    if (!salon || !service) return;
+    if (!salon || !firstService) return;
     setSlotLoading(true);
     setError("");
     setTime("");
     try {
-      setSlots(await fetchAvailability(salon.id, service.id, date));
+      setSlots(await fetchAvailability(salon.id, firstService.id, date));
     } catch (e) {
       setSlots([]);
       setError(bookingErrorMessage(e));
@@ -86,27 +104,17 @@ export default function BookingFlow() {
       );
       return;
     }
-    if (!salon || !service || !time) return;
+    if (!salon || services.length === 0 || !time) return;
     setBusy(true);
     setError("");
     try {
-      const result = await createBooking({
-        salonId: salon.id,
-        serviceId: service.id,
-        bookingDate: date,
-        startTime: time,
-      });
+      const result = await createBookingGroup({ serviceIds, startTime: time });
       router.replace({
         pathname: "/booking-confirmation",
         params: {
-          id: result.id,
-          salon: result.salonName || salon.name,
-          service: result.serviceName || service.name,
-          date: result.bookingDate,
-          time: result.startTime,
+          salon: salon.name,
+          items: JSON.stringify(result.items),
           total: String(result.total),
-          deposit: String(result.deposit),
-          remaining: String(result.remaining),
         },
       });
     } catch (e) {
@@ -123,7 +131,7 @@ export default function BookingFlow() {
         <ActivityIndicator color={colors.primary} />
       </Screen>
     );
-  if ((error && !salon) || !salon || !service)
+  if ((error && !salon) || !salon || services.length === 0)
     return (
       <Screen>
         <Text style={s.title}>
@@ -143,7 +151,7 @@ export default function BookingFlow() {
           style={s.backButton}
           onPress={() => (step > 1 ? setStep(step - 1) : router.back())}
         >
-          <Text style={s.back}>‹</Text>
+          <Text style={s.back}>ï¿½</Text>
         </Pressable>
         <Text style={s.navTitle}>Book appointment</Text>
         <View style={{ width: 36 }} />
@@ -158,13 +166,24 @@ export default function BookingFlow() {
       <Text style={s.kicker}>STEP {step} OF 4</Text>
       {step === 1 && (
         <>
-          <Text style={s.title}>Selected service</Text>
-          <Summary
-            salon={salon.name}
-            service={service.name}
-            duration={service.duration}
-            price={service.price}
-          />
+          <Text style={s.title}>Selected services</Text>
+          <View style={{ gap: spacing.sm }}>
+            {services.map((svc) => (
+              <View style={s.card} key={svc.id}>
+                <Text style={s.service}>{svc.name}</Text>
+                <View style={s.line}>
+                  <Text style={s.muted}>{svc.duration} minutes</Text>
+                  <Text style={s.price}>PKR {svc.price.toLocaleString()}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+          <View style={s.money}>
+            <Text style={s.salon}>Total</Text>
+            <Text style={s.price}>
+              {totalDuration} min Â· PKR {totalPrice.toLocaleString()}
+            </Text>
+          </View>
           <Text style={s.note}>
             No barber selection is required. Your salon will handle the
             appointment.
@@ -220,16 +239,34 @@ export default function BookingFlow() {
       {step === 4 && (
         <>
           <Text style={s.title}>Booking summary</Text>
-          <Summary
-            salon={salon.name}
-            service={service.name}
-            duration={service.duration}
-            price={service.price}
-            date={date}
-            time={time}
-          />
+          <Text style={s.salon}>{salon.name}</Text>
+          <Text style={s.rowText}>
+            {date} Â· starting {time}
+          </Text>
+          <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+            {estimatedSchedule(time).map(({ service: svc, start, end }) => (
+              <View style={s.card} key={svc.id}>
+                <Text style={s.service}>{svc.name}</Text>
+                <Text style={s.muted}>
+                  {start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  {" â€“ "}
+                  {end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} (est.)
+                </Text>
+                <View style={s.line}>
+                  <Text style={s.muted}>{svc.duration} minutes</Text>
+                  <Text style={s.price}>PKR {svc.price.toLocaleString()}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+          <View style={s.money}>
+            <Text style={s.salon}>Total</Text>
+            <Text style={s.price}>PKR {totalPrice.toLocaleString()}</Text>
+          </View>
           <Text style={s.note}>
-            Final amounts are calculated and saved by the salon backend.
+            Estimated times shown above â€” final times are calculated and saved by
+            the salon backend when you confirm. This is pay-at-salon; no payment is
+            collected now.
           </Text>
         </>
       )}
@@ -242,7 +279,7 @@ export default function BookingFlow() {
         ]}
       >
         <Text style={s.primaryText}>
-          {busy ? "Confirming…" : step === 4 ? "Confirm booking" : "Continue"}
+          {busy ? "Confirmingï¿½" : step === 4 ? "Confirm booking" : "Continue"}
         </Text>
       </Pressable>
     </Screen>
@@ -261,37 +298,6 @@ function Choice({
     <Pressable onPress={onPress} style={[s.choice, selected && s.choiceOn]}>
       <Text style={[s.choiceText, selected && s.choiceTextOn]}>{label}</Text>
     </Pressable>
-  );
-}
-function Summary({
-  salon,
-  service,
-  duration,
-  price,
-  date,
-  time,
-}: {
-  salon: string;
-  service: string;
-  duration: number;
-  price: number;
-  date?: string;
-  time?: string;
-}) {
-  return (
-    <View style={s.card}>
-      <Text style={s.salon}>{salon}</Text>
-      <Text style={s.service}>{service}</Text>
-      {date && (
-        <Text style={s.rowText}>
-          {date} · {time}
-        </Text>
-      )}
-      <View style={s.line}>
-        <Text style={s.muted}>{duration} minutes</Text>
-        <Text style={s.price}>PKR {price.toLocaleString()}</Text>
-      </View>
-    </View>
   );
 }
 function Money({ label, value }: { label: string; value: number }) {

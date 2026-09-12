@@ -12,6 +12,14 @@ export default function SalonDetail() {
   const [salon, setSalon] = useState<Salon | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Order reflects selection order, which is also visit order (services are
+  // performed back-to-back in this order â€” see createBookingGroup).
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  function toggle(serviceId: string) {
+    setSelectedIds((prev) =>
+      prev.includes(serviceId) ? prev.filter((x) => x !== serviceId) : [...prev, serviceId],
+    );
+  }
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -30,7 +38,7 @@ export default function SalonDetail() {
     return (
       <Screen>
         <Pressable onPress={() => router.back()}>
-          <Text style={s.backText}>‹</Text>
+          <Text style={s.backText}>ï¿½</Text>
         </Pressable>
         <Text style={s.title}>{error || "Salon not found."}</Text>
       </Screen>
@@ -39,7 +47,7 @@ export default function SalonDetail() {
     <Screen>
       <View style={[s.cover, { backgroundColor: salon.accent }]}>
         <Pressable onPress={() => router.back()} style={s.back}>
-          <Text style={s.backText}>‹</Text>
+          <Text style={s.backText}>ï¿½</Text>
         </Pressable>
         <Text style={s.mono}>{salon.name[0]}</Text>
       </View>
@@ -59,33 +67,35 @@ export default function SalonDetail() {
       </Text>
       <Text style={s.description}>{salon.description}</Text>
       <SectionHeader title="Services" />
+      <Text style={s.hint}>Select one or more services for this visit.</Text>
       {salon.services.length ? (
-        salon.services.map((service) => (
-          <View key={service.id} style={s.card}>
-            <View style={s.serviceTop}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.serviceName}>{service.name}</Text>
-                <Text style={s.duration}>
-                  {service.duration} min
-                  {service.category ? ` · ${service.category}` : ""}
-                </Text>
-              </View>
-              <Text style={s.price}>PKR {service.price.toLocaleString()}</Text>
-            </View>
-            <Text style={s.serviceDescription}>{service.description}</Text>
+        salon.services.map((service) => {
+          const checked = selectedIds.includes(service.id);
+          return (
             <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: "/booking",
-                  params: { salonId: salon.id, serviceId: service.id },
-                })
-              }
-              style={s.book}
+              key={service.id}
+              onPress={() => toggle(service.id)}
+              style={[s.card, checked && s.cardOn]}
             >
-              <Text style={s.bookText}>Book</Text>
+              <View style={s.serviceTop}>
+                <View style={s.checkRow}>
+                  <View style={[s.checkbox, checked && s.checkboxOn]}>
+                    {checked && <Text style={s.checkMark}>âœ“</Text>}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.serviceName}>{service.name}</Text>
+                    <Text style={s.duration}>
+                      {service.duration} min
+                      {service.category ? ` Â· ${service.category}` : ""}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={s.price}>PKR {service.price.toLocaleString()}</Text>
+              </View>
+              <Text style={s.serviceDescription}>{service.description}</Text>
             </Pressable>
-          </View>
-        ))
+          );
+        })
       ) : (
         <Text style={s.muted}>No active services are available.</Text>
       )}
@@ -96,6 +106,33 @@ export default function SalonDetail() {
           {salon.hours}
         </Text>
       </View>
+      {selectedIds.length > 0 && (
+        <View style={s.stickyBar}>
+          <View>
+            <Text style={s.stickyCount}>
+              {selectedIds.length} service{selectedIds.length === 1 ? "" : "s"}
+            </Text>
+            <Text style={s.stickyTotal}>
+              PKR{" "}
+              {salon.services
+                .filter((x) => selectedIds.includes(x.id))
+                .reduce((sum, x) => sum + x.price, 0)
+                .toLocaleString()}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: "/booking",
+                params: { salonId: salon.id, serviceIds: selectedIds.join(",") },
+              })
+            }
+            style={s.continueButton}
+          >
+            <Text style={s.bookText}>Continue</Text>
+          </Pressable>
+        </View>
+      )}
     </Screen>
   );
 }
@@ -139,6 +176,7 @@ const s = StyleSheet.create({
     lineHeight: 21,
     marginVertical: spacing.lg,
   },
+  hint: { color: colors.muted, fontSize: 12, marginBottom: spacing.sm },
   card: {
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -147,12 +185,25 @@ const s = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.md,
   },
+  cardOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   serviceTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: spacing.md,
   },
+  checkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkMark: { color: colors.onPrimary, fontWeight: "800", fontSize: 13 },
   serviceName: { color: colors.text, fontWeight: "700", fontSize: 15 },
   duration: { color: colors.muted, fontSize: 12, marginTop: 4 },
   price: { color: colors.deepGreen, fontWeight: "800" },
@@ -161,15 +212,28 @@ const s = StyleSheet.create({
     lineHeight: 19,
     marginTop: spacing.sm,
   },
-  book: {
-    minHeight: 44,
+  bookText: { color: colors.onPrimary, fontWeight: "800" },
+  stickyBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  stickyCount: { color: colors.muted, fontSize: 12 },
+  stickyTotal: { color: colors.text, fontWeight: "800", fontSize: 17, marginTop: 2 },
+  continueButton: {
+    minHeight: 48,
+    paddingHorizontal: spacing.lg,
     backgroundColor: colors.primary,
     borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: spacing.md,
   },
-  bookText: { color: colors.onPrimary, fontWeight: "800" },
   review: {
     backgroundColor: colors.surface,
     borderBottomWidth: 1,

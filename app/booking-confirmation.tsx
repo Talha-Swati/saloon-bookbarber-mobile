@@ -3,17 +3,19 @@ import { useEffect } from "react";
 import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
+import type { CreatedBookingItem } from "@/services/salonService";
 export default function Confirmation() {
   const p = useLocalSearchParams<{
-    id: string;
     salon: string;
-    service: string;
-    date: string;
-    time: string;
+    items: string;
     total: string;
-    deposit: string;
-    remaining: string;
   }>();
+  let items: CreatedBookingItem[] = [];
+  try {
+    items = JSON.parse(p.items ?? "[]");
+  } catch {
+    items = [];
+  }
   useEffect(() => {
     const subscription = BackHandler.addEventListener(
       "hardwareBackPress",
@@ -32,23 +34,26 @@ export default function Confirmation() {
         </View>
         <Text style={s.title}>Booking confirmed</Text>
         <Text style={s.subtitle}>Your appointment is reserved.</Text>
-        <Text style={s.id}>BOOKING ID · {p.id}</Text>
+        <Text style={s.id}>{p.salon}</Text>
       </View>
       <View style={s.card}>
-        <Row label="Salon" value={p.salon} />
-        <Row label="Service" value={p.service} />
-        <Row label="Date & time" value={p.date + " · " + p.time} />
+        {items.map((item) => (
+          <Row
+            key={item.id}
+            label={item.serviceName}
+            value={
+              new Date(item.startTime).toLocaleTimeString(undefined, {
+                hour: "numeric",
+                minute: "2-digit",
+              }) +
+              " Â· PKR " +
+              item.price.toLocaleString()
+            }
+          />
+        ))}
         <Row
-          label="Total amount"
-          value={"PKR " + Number(p.total).toLocaleString()}
-        />
-        <Row
-          label="Booking deposit"
-          value={"PKR " + Number(p.deposit).toLocaleString()}
-        />
-        <Row
-          label="Remaining amount"
-          value={"PKR " + Number(p.remaining).toLocaleString()}
+          label="Total"
+          value={"PKR " + Number(p.total || 0).toLocaleString()}
           last
         />
       </View>

@@ -211,6 +211,52 @@ export async function createBooking(input: {
     remaining: total,
   };
 }
+export type CreatedBookingItem = {
+  id: string;
+  serviceName: string;
+  startTime: string;
+  endTime: string;
+  price: number;
+};
+export type CreatedBookingGroup = {
+  groupId: string | null;
+  items: CreatedBookingItem[];
+  total: number;
+};
+// create_customer_booking_group(p_service_ids uuid[], p_start_time timestamptz, ...) —
+// supabase/migrations/016_multi_service_bookings.sql (unapplied until Talha runs
+// 013-016 in order). Mirrors saloon-bookbarber-web/src/lib/salons/queries.ts's
+// createBookingGroup exactly (same RPC name, same argument names, same return
+// shape) — one shared contract, not two that can drift apart again the way
+// create_customer_booking's argument names once did between these two clients.
+// Books every id in serviceIds back-to-back in that order for one visit; the
+// server (not this client) computes each service's real start/end time.
+export async function createBookingGroup(input: {
+  serviceIds: string[];
+  startTime: string;
+  notes?: string | null;
+}): Promise<CreatedBookingGroup> {
+  requireSupabaseConfig();
+  const { data, error } = await supabase.rpc("create_customer_booking_group", {
+    p_service_ids: input.serviceIds,
+    p_start_time: input.startTime,
+    p_notes: input.notes ?? null,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as Row[];
+  const items = rows.map((row) => ({
+    id: String(row.id),
+    serviceName: row.service_name_snapshot ?? "Service",
+    startTime: row.start_time,
+    endTime: row.end_time,
+    price: number(row.service_price_snapshot),
+  }));
+  return {
+    groupId: rows[0]?.booking_group_id ?? null,
+    items,
+    total: items.reduce((sum, item) => sum + item.price, 0),
+  };
+}
 const bookingFrom = (row: Row): Booking => {
   const salon = Array.isArray(row.salons) ? row.salons[0] : row.salons;
   const service = Array.isArray(row.salon_services)
@@ -264,7 +310,7 @@ export function bookingErrorMessage(error: unknown) {
     error instanceof Error
       ? error.message
       : String((error as Row)?.message ?? error);
-  if (message.includes("SLOT_UNAVAILABLE"))
+  if (message.includes("SLOT_UNAVAILABLE") || message.includes("SLOT_FULL"))
     return "That slot is no longer available. Please choose another time.";
   if (/auth|jwt|session/i.test(message))
     return "Please sign in before booking.";
@@ -272,5 +318,11 @@ export function bookingErrorMessage(error: unknown) {
     return "This salon is not accepting bookings.";
   if (/inactive.*service|service.*inactive/i.test(message))
     return "This service is no longer available.";
+  if (message.includes("AT_LEAST_ONE_SERVICE_REQUIRED"))
+    return "Select at least one service to book.";
+  if (message.includes("SERVICES_MUST_BELONG_TO_SAME_SALON"))
+    return "All selected services must be from this salon.";
+  if (message.includes("VISIT_DOES_NOT_FIT_TODAY"))
+    return "This combination of services doesn't fit before closing at that start time — try an earlier time or fewer services.";
   return message || "Something went wrong. Please try again.";
 }
