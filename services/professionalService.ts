@@ -154,6 +154,35 @@ export async function fetchAssignedBookings(mode: ProfessionalDataMode) {
   return (data ?? []).map(bookingFromRow);
 }
 
+// Booking-sync session (2026-09-12): previously the only refresh trigger for a
+// professional's bookings was `useFocusEffect` (navigate away and back). A booking a
+// customer makes right now would not appear until the professional left and returned
+// to the screen. This subscribes to live changes on the professional's own assigned
+// bookings, same `postgres_changes` pattern as the web repo's
+// components/employee/EmployeeNotificationBell.tsx (channel + `.on("postgres_changes",
+// ...)` + `.subscribe()`), filtered server-side by `professional_id` — RLS
+// (`bookings_professional_select_assigned`) already scopes this to the caller's own
+// rows regardless, the filter just avoids waking the client for other professionals'
+// bookings.
+export function subscribeToAssignedBookings(professionalId: string, onChange: () => void) {
+  const channel = supabase
+    .channel(`professional-bookings-${professionalId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "bookings",
+        filter: `professional_id=eq.${professionalId}`,
+      },
+      onChange,
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 export async function fetchAssignedBooking(id: string, mode: ProfessionalDataMode) {
   if (mode === "demo") {
     await delay();

@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/providers/AuthProvider";
-import { fetchAssignedBookings, professionalErrorMessage, ProfessionalBooking } from "@/services/professionalService";
+import { fetchAssignedBookings, fetchProfessionalProfile, professionalErrorMessage, subscribeToAssignedBookings, ProfessionalBooking } from "@/services/professionalService";
 
 type Filter = "today" | "upcoming" | "completed";
 export default function ProfessionalBookings() {
@@ -17,10 +17,27 @@ export default function ProfessionalBookings() {
     if (role !== "professional") { router.replace("/professional"); return; }
     setLoading(true);
     setError("");
-    fetchAssignedBookings(isDemo ? "demo" : "remote")
-      .then(setItems)
-      .catch((nextError) => setError(professionalErrorMessage(nextError)))
-      .finally(() => setLoading(false));
+    const mode = isDemo ? "demo" : "remote";
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    fetchAssignedBookings(mode)
+      .then((nextItems) => {
+        if (cancelled) return;
+        setItems(nextItems);
+        // Same live-refresh subscription as app/professional/index.tsx, scoped to
+        // this screen's focus lifetime — see services/professionalService.ts.
+        if (!isDemo) {
+          fetchProfessionalProfile(mode).then((prof) => {
+            if (cancelled) return;
+            unsubscribe = subscribeToAssignedBookings(prof.id, () => {
+              fetchAssignedBookings(mode).then((refreshed) => { if (!cancelled) setItems(refreshed); });
+            });
+          });
+        }
+      })
+      .catch((nextError) => { if (!cancelled) setError(professionalErrorMessage(nextError)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; unsubscribe?.(); };
   }, [isDemo, role]));
   const filtered = items.filter((item) => active === "today" ? item.date === "today" : active === "completed" ? item.status === "completed" : item.date !== "today" && item.status !== "completed" && item.status !== "no_show");
   return <Screen><Header /><View style={s.tabs}>{(["today", "upcoming", "completed"] as Filter[]).map((filter) => <Pressable key={filter} onPress={() => setActive(filter)} style={[s.tab, active === filter && s.tabOn]}><Text style={[s.tabText, active === filter && s.tabTextOn]}>{filter[0].toUpperCase() + filter.slice(1)}</Text></Pressable>)}</View>{loading ? <ActivityIndicator color={colors.primary} /> : error ? <View><Text style={s.empty}>{error}</Text><Pressable style={s.retry} onPress={() => router.replace("/professional/bookings")}><Text style={s.retryText}>Retry</Text></Pressable></View> : filtered.length ? filtered.map((item) => <Pressable key={item.id} style={s.card} onPress={() => router.push({ pathname: "/professional/booking/[id]", params: { id: item.id } })}><View style={s.top}><Text style={s.name}>{item.customerName}</Text><Status status={item.status} /></View><Text style={s.service}>{item.serviceName}</Text><Text style={s.meta}>{item.date === "today" ? "Today" : item.date} · {item.time} · {item.durationMinutes} min</Text></Pressable>) : <Text style={s.empty}>No assigned bookings in this view.</Text>}</Screen>;

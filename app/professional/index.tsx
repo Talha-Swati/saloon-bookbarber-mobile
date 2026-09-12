@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useAuth } from "@/providers/AuthProvider";
-import { fetchAssignedBookings, fetchProfessionalProfile, professionalErrorMessage, ProfessionalBooking, ProfessionalProfile } from "@/services/professionalService";
+import { fetchAssignedBookings, fetchProfessionalProfile, professionalErrorMessage, subscribeToAssignedBookings, ProfessionalBooking, ProfessionalProfile } from "@/services/professionalService";
 
 export default function ProfessionalDashboard() {
   const { session, role, isDemo, loading: authLoading } = useAuth();
@@ -17,10 +17,25 @@ export default function ProfessionalDashboard() {
     setLoading(true);
     setError("");
     const mode = isDemo ? "demo" : "remote";
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
     Promise.all([fetchProfessionalProfile(mode), fetchAssignedBookings(mode)])
-      .then(([nextProfile, nextBookings]) => { setProfile(nextProfile); setBookings(nextBookings); })
-      .catch((nextError) => setError(professionalErrorMessage(nextError)))
-      .finally(() => setLoading(false));
+      .then(([nextProfile, nextBookings]) => {
+        if (cancelled) return;
+        setProfile(nextProfile);
+        setBookings(nextBookings);
+        // Live refresh while this screen is focused, so a booking a customer makes
+        // right now (or a status change from elsewhere) shows up without navigating
+        // away and back. Demo mode has no real backend to subscribe to.
+        if (!isDemo) {
+          unsubscribe = subscribeToAssignedBookings(nextProfile.id, () => {
+            fetchAssignedBookings(mode).then((refreshed) => { if (!cancelled) setBookings(refreshed); });
+          });
+        }
+      })
+      .catch((nextError) => { if (!cancelled) setError(professionalErrorMessage(nextError)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; unsubscribe?.(); };
   }, [isDemo, role]));
   if (authLoading || loading) return <Screen><ActivityIndicator color={colors.primary} /></Screen>;
   if (!session || role !== "professional") return <ProfessionalAccess />;
