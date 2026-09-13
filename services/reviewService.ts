@@ -1,8 +1,7 @@
 import { requireSupabaseConfig, supabase } from "@/services/supabase";
 
-// Integration boundary for supabase/migrations/013_reviews.sql. That migration is not
-// yet applied to the live database (see SESSION-REPORT.md Phase 4) — calls here will
-// fail with a Postgres "relation does not exist" error until Talha runs it.
+// Integration boundary for supabase/migrations/013_reviews.sql, applied to the live
+// database as of Session 10 (2026-09-13).
 export async function submitReview(input: {
   bookingId: string;
   rating: number;

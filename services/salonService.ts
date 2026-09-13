@@ -46,13 +46,14 @@ const salonFrom = (
   row: Row,
   services: Service[] = [],
   hours: Row[] = [],
+  ratingInfo?: { rating: number; count: number },
 ): Salon => ({
   id: String(row.id),
   name: row.name ?? "Salon",
   area: row.area ?? row.address ?? "",
   city: row.city ?? "",
-  rating: number(row.rating_average ?? row.rating),
-  reviews: number(row.review_count ?? row.reviews),
+  rating: ratingInfo?.rating ?? 0,
+  reviews: ratingInfo?.count ?? 0,
   distanceKm: number(row.distance_km),
   startingPrice: services.length
     ? Math.min(...services.map((x) => x.price))
@@ -84,6 +85,31 @@ async function salonHours(salonId: string) {
   if (error) throw error;
   return data ?? [];
 }
+// reviews (supabase/migrations/013_reviews.sql) has no denormalized rating on `salons`
+// itself, so the average/count is computed here from the real rows each request.
+async function salonRatings(
+  salonIds: string[],
+): Promise<Map<string, { rating: number; count: number }>> {
+  const map = new Map<string, { rating: number; count: number }>();
+  if (!salonIds.length) return map;
+  const { data, error } = await supabase
+    .from("reviews")
+    .select("salon_id,rating")
+    .in("salon_id", salonIds);
+  if (error) throw error;
+  const sums = new Map<string, { total: number; count: number }>();
+  for (const row of (data ?? []) as Row[]) {
+    const id = String(row.salon_id);
+    const entry = sums.get(id) ?? { total: 0, count: 0 };
+    entry.total += number(row.rating);
+    entry.count += 1;
+    sums.set(id, entry);
+  }
+  sums.forEach((entry, id) => {
+    map.set(id, { rating: entry.total / entry.count, count: entry.count });
+  });
+  return map;
+}
 export async function fetchSalons(): Promise<Salon[]> {
   requireSupabaseConfig();
   const { data, error } = await supabase
@@ -93,13 +119,15 @@ export async function fetchSalons(): Promise<Salon[]> {
     .eq("is_active", true)
     .order("name");
   if (error) throw error;
+  const rows = data ?? [];
+  const ratings = await salonRatings(rows.map((row) => String(row.id)));
   return Promise.all(
-    (data ?? []).map(async (row) => {
+    rows.map(async (row) => {
       const [services, hours] = await Promise.all([
         activeServices(row.id),
         salonHours(row.id),
       ]);
-      return salonFrom(row, services, hours);
+      return salonFrom(row, services, hours, ratings.get(String(row.id)));
     }),
   );
 }
@@ -114,11 +142,12 @@ export async function fetchSalon(id: string): Promise<Salon | null> {
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  const [services, hours] = await Promise.all([
+  const [services, hours, ratings] = await Promise.all([
     activeServices(id),
     salonHours(id),
+    salonRatings([id]),
   ]);
-  return salonFrom(data, services, hours);
+  return salonFrom(data, services, hours, ratings.get(id));
 }
 // get_service_availability(p_salon_id uuid, p_service_id uuid, p_booking_date date) —
 // verified character-for-character against saloon-bookbarber-web/supabase/migrations
