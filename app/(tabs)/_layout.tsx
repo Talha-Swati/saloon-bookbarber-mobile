@@ -1,4 +1,4 @@
-﻿import { Tabs } from 'expo-router';
+import { Tabs } from 'expo-router';
 import { ColorValue, Text } from 'react-native';
 import { colors } from '@/constants/theme';
 const icon = (glyph: string) => ({ color, size }: { color: ColorValue; size: number }) => <Text style={{ color, fontSize: size }}>{glyph}</Text>;

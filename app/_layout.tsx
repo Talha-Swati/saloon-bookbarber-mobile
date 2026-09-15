@@ -1,4 +1,4 @@
-﻿import { Stack } from "expo-router";
+import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import "react-native-reanimated";
