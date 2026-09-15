@@ -1,27 +1,8 @@
 import { AvailabilitySlot, Booking, Salon, Service } from "@/types";
 import { requireSupabaseConfig, supabase } from "@/services/supabase";
+import { formatClockTime, formatDateLabel, formatDbTime } from "@/utils/format";
 type Row = Record<string, any>;
 const number = (value: unknown) => Number(value ?? 0);
-const timeLabel = (value: string) => {
-  if (!value) return "";
-  const part = value.includes("T") ? value.split("T")[1] : value;
-  const [h, m] = part.split(":").map(Number);
-  if (Number.isNaN(h)) return value;
-  return `${h % 12 || 12}:${String(m || 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
-};
-// `bookings` has no separate date column (supabase/migrations/002_booking_commission.sql)
-// — the date is derived from the `start_time` timestamptz.
-const dateLabel = (value: string) => {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf())
-    ? value
-    : date.toLocaleDateString(undefined, {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-};
 const serviceFrom = (row: Row): Service => ({
   id: String(row.id),
   name: row.name ?? row.service_name ?? "Service",
@@ -38,7 +19,7 @@ const hoursText = (hours: Row[]) =>
         .map((h) =>
           h.is_closed
             ? `${h.day_of_week}: Closed`
-            : `${h.day_of_week}: ${timeLabel(h.open_time)}–${timeLabel(h.close_time)}`,
+            : `${h.day_of_week}: ${formatDbTime(h.open_time)}–${formatDbTime(h.close_time)}`,
         )
         .join(" · ")
     : "Hours unavailable";
@@ -176,71 +157,7 @@ export async function fetchAvailability(
       available: number(row.available_capacity) > 0,
     }))
     .filter((x) => x.available && x.startTime);
-}
-export type CreatedBooking = {
-  id: string;
-  salonName: string;
-  serviceName: string;
-  bookingDate: string;
-  startTime: string;
-  total: number;
-  deposit: number;
-  remaining: number;
-};
-// create_customer_booking(p_service_id uuid, p_start_time timestamptz, p_notes text
-// default null, p_booking_source booking_source default 'customer_app') — verified
-// character-for-character against 007_booking_phase1.sql (unchanged by 008-011, which
-// only patch the function body's internal validation logic via pg_get_functiondef,
-// never its parameter list). There is no p_salon_id or p_booking_date parameter — the
-// salon is resolved server-side from the service (v_service.salon_id in the function
-// body), which is also why input.salonId/input.bookingDate below are accepted from the
-// caller but not sent to the RPC. The previous prefixed ({p_salon_id, p_booking_date,
-// ...}) and plain ({salon_id, booking_date, ...}) argument sets both included those two
-// nonexistent parameters, so every booking attempt failed with a "could not find the
-// function" error regardless of which one PostgREST tried — this was a real,
-// previously-undiscovered break in the customer booking flow, not a hypothetical one.
-export async function createBooking(input: {
-  salonId: string;
-  serviceId: string;
-  bookingDate: string;
-  startTime: string;
-}): Promise<CreatedBooking> {
-  requireSupabaseConfig();
-  const { data, error: rpcError } = await supabase.rpc("create_customer_booking", {
-    p_service_id: input.serviceId,
-    p_start_time: input.startTime,
-  });
-  if (rpcError) throw rpcError;
-  const rpcRow = Array.isArray(data) ? data[0] : data;
-  const bookingId =
-    typeof rpcRow === "string" ? rpcRow : (rpcRow.booking_id ?? rpcRow.id);
-  // salon_id -> salons(id) and service_id -> salon_services(id): the embed key is the
-  // referenced table's name, so "services" (no such table) never matched anything.
-  const { data: saved, error } = await supabase
-    .from("bookings")
-    .select("*, salons(name), salon_services(name,price)")
-    .eq("id", bookingId)
-    .single();
-  if (error) throw error;
-  const salon = Array.isArray(saved.salons) ? saved.salons[0] : saved.salons;
-  const service = Array.isArray(saved.salon_services)
-    ? saved.salon_services[0]
-    : saved.salon_services;
-  // No deposit/payment system exists yet (see docs/PAYMENTS-SCOPING.md in the web
-  // repo) — every booking is pay-at-salon in full, so deposit is always 0.
-  const total = number(saved.service_price_snapshot ?? service?.price);
-  return {
-    id: String(saved.id),
-    salonName: salon?.name ?? "",
-    serviceName: saved.service_name_snapshot ?? service?.name ?? "",
-    bookingDate: saved.start_time ?? input.bookingDate,
-    startTime: saved.start_time ?? input.startTime,
-    total,
-    deposit: 0,
-    remaining: total,
-  };
-}
-export type CreatedBookingItem = {
+}export type CreatedBookingItem = {
   id: string;
   serviceName: string;
   startTime: string;
@@ -296,8 +213,8 @@ const bookingFrom = (row: Row): Booking => {
     id: String(row.id),
     salonName: salon?.name ?? "Salon",
     serviceName: row.service_name_snapshot ?? service?.name ?? "Service",
-    date: dateLabel(row.start_time),
-    time: timeLabel(row.start_time),
+    date: formatDateLabel(row.start_time),
+    time: formatClockTime(row.start_time),
     duration: number(
       row.duration_minutes_snapshot ?? service?.duration_minutes,
     ),

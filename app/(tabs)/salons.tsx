@@ -31,7 +31,7 @@ export default function Salons() {
         Choose a salon, then select a service and available slot.
       </Text>
       <View style={s.search}>
-        <Text>?</Text>
+        <Text>🔍</Text>
         <TextInput
           value={query}
           onChangeText={setQuery}

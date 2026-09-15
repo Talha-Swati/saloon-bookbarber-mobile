@@ -1,15 +1,14 @@
-﻿import {Booking,Category,NotificationItem,Salon,Service} from '@/types';
-export const categories:Category[]=[{id:'haircut',name:'Haircut',icon:'✂️'},{id:'beard',name:'Beard',icon:'🧔'},{id:'facial',name:'Facial',icon:'✨'},{id:'grooming',name:'Grooming',icon:'💈'}];
-const services:Service[]=[{id:'classic-cut',name:'Classic Haircut',price:1200,duration:45,description:'Consultation, precision cut and styling.'},{id:'cut-beard',name:'Haircut & Beard Trim',price:1800,duration:60,description:'Complete haircut with beard shaping and finish.'},{id:'facial',name:'Express Facial',price:2200,duration:40,description:'Cleanse, exfoliation and refreshing face treatment.'}];
-export const salons:Salon[]=[
-{id:'1',name:'The Gentlemen’s Lounge',area:'DHA Phase 5',city:'Lahore',rating:4.9,reviews:184,distanceKm:1.2,startingPrice:1200,featured:true,accent:'#16856A',isOpen:true,description:'A modern men’s grooming lounge known for precise cuts and relaxed service.',hours:'Mon–Sun · 10:00 AM–10:00 PM',services,reviewPreview:[{id:'r1',name:'Hamza A.',rating:5,comment:'Excellent service and a very clean salon.'},{id:'r2',name:'Usman K.',rating:5,comment:'Great haircut and easy booking experience.'}]},
-{id:'2',name:'N-Gents Salon',area:'Clifton',city:'Karachi',rating:4.8,reviews:231,distanceKm:2.4,startingPrice:1000,featured:true,accent:'#0B1720',isOpen:true,description:'Contemporary grooming and dependable service in the heart of Clifton.',hours:'Mon–Sun · 11:00 AM–11:00 PM',services:services.map(x=>({...x,price:x.price-200})),reviewPreview:[{id:'r3',name:'Ali R.',rating:5,comment:'Friendly team and a sharp result.'}]},
-{id:'3',name:'Islamabad Grooming Co.',area:'F-7 Markaz',city:'Islamabad',rating:4.7,reviews:98,distanceKm:3.1,startingPrice:900,accent:'#030617',isOpen:false,description:'A comfortable neighbourhood salon for classic cuts and grooming.',hours:'Mon–Sat · 10:00 AM–9:00 PM',services:services.map(x=>({...x,price:x.price-300})),reviewPreview:[{id:'r4',name:'Saad M.',rating:4,comment:'Professional service and good value.'}]}];
-export const bookings:Booking[]=[{id:'b1',salonName:'The Gentlemen’s Lounge',serviceName:'Haircut & Beard Trim',date:'Friday, 4 September',time:'5:30 PM',duration:60,price:1800,deposit:450,paymentMethod:'Easypaisa',paymentStatus:'Deposit paid',status:'upcoming'},{id:'b2',salonName:'N-Gents Salon',serviceName:'Classic Haircut',date:'18 August 2026',time:'3:00 PM',duration:45,price:1000,deposit:250,paymentMethod:'Cash',paymentStatus:'Pay at salon',status:'completed'}];
-export const notifications:NotificationItem[]=[
-{id:'n1',type:'confirmed',title:'Booking confirmed',message:'Your appointment at The Gentlemen’s Lounge is confirmed.',time:'2 min ago',read:false},
-{id:'n2',type:'reminder',title:'Appointment tomorrow',message:'Your haircut is tomorrow at 5:30 PM.',time:'1 hour ago',read:false},
-{id:'n3',type:'payment',title:'Deposit received',message:'PKR 450 deposit was recorded for booking BB-B1.',time:'Yesterday',read:true},
-{id:'n4',type:'rescheduled',title:'Booking rescheduled',message:'Your appointment was moved to Friday at 5:30 PM.',time:'2 days ago',read:true},
-{id:'n5',type:'cancelled',title:'Booking cancelled',message:'Your previous booking at N-Gents Salon was cancelled.',time:'12 Aug',read:true},
-{id:'n6',type:'review',title:'How was your visit?',message:'Review your completed Classic Haircut at N-Gents Salon.',time:'19 Aug',read:false}];
+import { NotificationItem } from '@/types';
+
+// Demo fixtures for the notifications screen only, shown when the __DEV__-guarded
+// demo-auth bypass is active (see constants/demoAuth.ts). The former `categories`,
+// `salons`, `bookings` and `services` fixtures here had no importers left once every
+// screen moved onto real Supabase reads, so they were removed.
+export const notifications: NotificationItem[] = [
+  { id: 'n1', type: 'confirmed', title: 'Booking confirmed', message: 'Your appointment at The Gentlemen’s Lounge is confirmed.', time: '2 min ago', read: false },
+  { id: 'n2', type: 'reminder', title: 'Appointment tomorrow', message: 'Your haircut is tomorrow at 5:30 PM.', time: '1 hour ago', read: false },
+  { id: 'n3', type: 'payment', title: 'Deposit received', message: 'PKR 450 deposit was recorded for booking BB-B1.', time: 'Yesterday', read: true },
+  { id: 'n4', type: 'rescheduled', title: 'Booking rescheduled', message: 'Your appointment was moved to Friday at 5:30 PM.', time: '2 days ago', read: true },
+  { id: 'n5', type: 'cancelled', title: 'Booking cancelled', message: 'Your previous booking at N-Gents Salon was cancelled.', time: '12 Aug', read: true },
+  { id: 'n6', type: 'review', title: 'How was your visit?', message: 'Review your completed Classic Haircut at N-Gents Salon.', time: '19 Aug', read: false },
+];

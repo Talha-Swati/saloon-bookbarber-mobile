@@ -68,7 +68,3 @@ export async function signUp(
   if (data.user) await ensureProfile(data.user, fullName, role);
   return data;
 }
-export async function signOut() {
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
-}

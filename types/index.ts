@@ -1,5 +1,4 @@
-﻿export type Category = { id: string; name: string; icon: string };
-export type Service = {
+﻿export type Service = {
   id: string;
   name: string;
   price: number;
@@ -43,7 +42,6 @@ export type Booking = {
   paymentStatus: "Deposit paid" | "Pay at salon";
   status: "upcoming" | "completed" | "cancelled";
 };
-export type BookingStep = "salon" | "service" | "slot" | "booking";
 export type NotificationItem = {
   id: string;
   type:

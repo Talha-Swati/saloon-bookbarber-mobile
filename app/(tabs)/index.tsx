@@ -64,13 +64,13 @@ export default function Home() {
           onPress={() => router.push("/notifications")}
           style={s.avatar}
         >
-          <Text style={s.bell}>?</Text>
-          <Text style={s.bellIcon}>?</Text>
+          <Text style={s.bell}>●</Text>
+          <Text style={s.bellIcon}>🔔</Text>
         </Pressable>
       </View>
       <Text style={s.title}>Look sharp. Feel your best.</Text>
       <View style={s.search}>
-        <Text style={{ fontSize: 22 }}>?</Text>
+        <Text style={{ fontSize: 22 }}>🔍</Text>
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -100,7 +100,7 @@ export default function Home() {
               >
                 {serviceCategories.map((name) => (
                   <View key={name} style={s.category}>
-                    <Text style={{ fontSize: 24 }}>??</Text>
+                    <Text style={{ fontSize: 24 }}>✂️</Text>
                     <Text style={s.categoryName}>{name}</Text>
                   </View>
                 ))}

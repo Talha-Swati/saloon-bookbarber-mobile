@@ -1,14 +1,8 @@
 import { requireSupabaseConfig, supabase } from "@/services/supabase";
 
+import { formatClockTime } from "@/utils/format";
 type Row = Record<string, any>;
 
-const timeLabel = (iso: string) => {
-  const date = new Date(iso);
-  if (Number.isNaN(date.valueOf())) return "";
-  const h = date.getHours();
-  const m = date.getMinutes();
-  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
-};
 
 const isSameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -93,7 +87,7 @@ function bookingFromRow(row: Row): ProfessionalBooking {
     customerPhone: row.customer_phone_snapshot ?? "",
     serviceName: row.service_name_snapshot ?? "Service",
     date: dateLabel(row.start_time),
-    time: timeLabel(row.start_time),
+    time: formatClockTime(row.start_time),
     durationMinutes: Number(row.duration_minutes_snapshot ?? 0),
     status: row.status as ProfessionalBookingStatus,
   };

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator } from "react-native";
 import { fetchSalon } from "@/services/salonService";
 import { Salon } from "@/types";
+import { formatPkr } from "@/utils/format";
 export default function SalonDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [salon, setSalon] = useState<Salon | null>(null);
@@ -38,7 +39,7 @@ export default function SalonDetail() {
     return (
       <Screen>
         <Pressable onPress={() => router.back()}>
-          <Text style={s.backText}>�</Text>
+          <Text style={s.backText}>‹</Text>
         </Pressable>
         <Text style={s.title}>{error || "Salon not found."}</Text>
       </Screen>
@@ -47,7 +48,7 @@ export default function SalonDetail() {
     <Screen>
       <View style={[s.cover, { backgroundColor: salon.accent }]}>
         <Pressable onPress={() => router.back()} style={s.back}>
-          <Text style={s.backText}>�</Text>
+          <Text style={s.backText}>‹</Text>
         </Pressable>
         <Text style={s.mono}>{salon.name[0]}</Text>
       </View>
@@ -63,7 +64,7 @@ export default function SalonDetail() {
         </Text>
       </View>
       <Text style={s.rating}>
-        ? {salon.rating} <Text style={s.muted}>({salon.reviews} reviews)</Text>
+        ★ {salon.rating} <Text style={s.muted}>({salon.reviews} reviews)</Text>
       </Text>
       <Text style={s.description}>{salon.description}</Text>
       <SectionHeader title="Services" />
@@ -90,7 +91,7 @@ export default function SalonDetail() {
                     </Text>
                   </View>
                 </View>
-                <Text style={s.price}>PKR {service.price.toLocaleString()}</Text>
+                <Text style={s.price}>{formatPkr(service.price)}</Text>
               </View>
               <Text style={s.serviceDescription}>{service.description}</Text>
             </Pressable>

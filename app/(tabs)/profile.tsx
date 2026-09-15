@@ -1,12 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
-const menu = [
-  "Personal information",
-  "Saved salons",
-  "Help & support",
-  "About BookBarber",
-];
 import { useState } from "react";
 import { Alert, ActivityIndicator, TextInput } from "react-native";
 import { useAuth } from "@/providers/AuthProvider";
@@ -79,7 +73,7 @@ export default function Profile() {
             style={s.primary}
           >
             <Text style={s.primaryText}>
-              {busy ? "Signing out…" : "Logout"}
+              {busy ? "Signing outâ€¦" : "Logout"}
             </Text>
           </Pressable>
         </>
@@ -115,7 +109,7 @@ export default function Profile() {
             style={[s.primary, ((!configured && !demoBypassEnabled) || busy) && { opacity: 0.45 }]}
           >
             <Text style={s.primaryText}>
-              {busy ? "Please wait…" : "Sign in"}
+              {busy ? "Please waitâ€¦" : "Sign in"}
             </Text>
           </Pressable>
           <Pressable

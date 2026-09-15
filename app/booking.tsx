@@ -12,6 +12,7 @@ import {
   fetchSalon,
 } from "@/services/salonService";
 import { useAuth } from "@/providers/AuthProvider";
+import { formatClockTime, formatPkr } from "@/utils/format";
 const dates = Array.from({ length: 7 }, (_, i) => {
   const d = new Date();
   d.setDate(d.getDate() + i + 1);
@@ -151,7 +152,7 @@ export default function BookingFlow() {
           style={s.backButton}
           onPress={() => (step > 1 ? setStep(step - 1) : router.back())}
         >
-          <Text style={s.back}>�</Text>
+          <Text style={s.back}>‹</Text>
         </Pressable>
         <Text style={s.navTitle}>Book appointment</Text>
         <View style={{ width: 36 }} />
@@ -173,7 +174,7 @@ export default function BookingFlow() {
                 <Text style={s.service}>{svc.name}</Text>
                 <View style={s.line}>
                   <Text style={s.muted}>{svc.duration} minutes</Text>
-                  <Text style={s.price}>PKR {svc.price.toLocaleString()}</Text>
+                  <Text style={s.price}>{formatPkr(svc.price)}</Text>
                 </View>
               </View>
             ))}
@@ -223,7 +224,7 @@ export default function BookingFlow() {
               {slots.map((x) => (
                 <Choice
                   key={x.startTime}
-                  label={x.startTime}
+                  label={formatClockTime(x.startTime)}
                   selected={time === x.startTime}
                   onPress={() => setTime(x.startTime)}
                 />
@@ -254,14 +255,14 @@ export default function BookingFlow() {
                 </Text>
                 <View style={s.line}>
                   <Text style={s.muted}>{svc.duration} minutes</Text>
-                  <Text style={s.price}>PKR {svc.price.toLocaleString()}</Text>
+                  <Text style={s.price}>{formatPkr(svc.price)}</Text>
                 </View>
               </View>
             ))}
           </View>
           <View style={s.money}>
             <Text style={s.salon}>Total</Text>
-            <Text style={s.price}>PKR {totalPrice.toLocaleString()}</Text>
+            <Text style={s.price}>{formatPkr(totalPrice)}</Text>
           </View>
           <Text style={s.note}>
             Estimated times shown above — final times are calculated and saved by
@@ -279,7 +280,7 @@ export default function BookingFlow() {
         ]}
       >
         <Text style={s.primaryText}>
-          {busy ? "Confirming�" : step === 4 ? "Confirm booking" : "Continue"}
+          {busy ? "Confirming…" : step === 4 ? "Confirm booking" : "Continue"}
         </Text>
       </Pressable>
     </Screen>
@@ -299,16 +300,7 @@ function Choice({
       <Text style={[s.choiceText, selected && s.choiceTextOn]}>{label}</Text>
     </Pressable>
   );
-}
-function Money({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={s.money}>
-      <Text style={s.muted}>{label}</Text>
-      <Text style={s.price}>PKR {value.toLocaleString()}</Text>
-    </View>
-  );
-}
-const s = StyleSheet.create({
+}const s = StyleSheet.create({
   backButton: {
     width: 48,
     height: 48,

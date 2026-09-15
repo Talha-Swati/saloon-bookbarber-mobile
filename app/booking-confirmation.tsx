@@ -4,6 +4,7 @@ import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 import type { CreatedBookingItem } from "@/services/salonService";
+import { formatPkr } from "@/utils/format";
 export default function Confirmation() {
   const p = useLocalSearchParams<{
     salon: string;
@@ -30,7 +31,7 @@ export default function Confirmation() {
     <Screen>
       <View style={s.success}>
         <View style={s.check}>
-          <Text style={s.checkText}>?</Text>
+          <Text style={s.checkText}>✓</Text>
         </View>
         <Text style={s.title}>Booking confirmed</Text>
         <Text style={s.subtitle}>Your appointment is reserved.</Text>
@@ -53,7 +54,7 @@ export default function Confirmation() {
         ))}
         <Row
           label="Total"
-          value={"PKR " + Number(p.total || 0).toLocaleString()}
+          value={formatPkr(Number(p.total || 0))}
           last
         />
       </View>

@@ -3,18 +3,11 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
-const reasons = [
-  "Plans changed",
-  "Selected wrong time",
-  "Found another salon",
-  "Other",
-];
-const dates = ["Sat 5 Sep", "Sun 6 Sep", "Mon 7 Sep"];
-const slots = ["11:00 AM", "2:30 PM", "5:00 PM", "7:30 PM"];
 import { useEffect } from "react";
 import { ActivityIndicator } from "react-native";
 import { fetchBooking } from "@/services/salonService";
 import { Booking } from "@/types";
+import { formatPkr } from "@/utils/format";
 export default function BookingDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -50,7 +43,7 @@ export default function BookingDetails() {
     <Screen>
       <Header />
       <View style={s.heading}>
-        <Text style={s.kicker}>BOOKING ID · {booking.id}</Text>
+        <Text style={s.kicker}>BOOKING ID Â· {booking.id}</Text>
         <Text style={s.title}>{booking.serviceName}</Text>
         <Text style={s.salon}>{booking.salonName}</Text>
         <Text
@@ -67,20 +60,20 @@ export default function BookingDetails() {
         </Text>
       </View>
       <View style={s.card}>
-        <Row label="Date & time" value={booking.date + " · " + booking.time} />
+        <Row label="Date & time" value={booking.date + " Â· " + booking.time} />
         <Row label="Duration" value={booking.duration + " minutes"} />
-        <Row label="Amount" value={"PKR " + booking.price.toLocaleString()} />
+        <Row label="Amount" value={formatPkr(booking.price)} />
         <Row
           label="Deposit"
-          value={"PKR " + booking.deposit.toLocaleString()}
+          value={formatPkr(booking.deposit)}
         />
         <Row
           label="Remaining"
-          value={"PKR " + (booking.price - booking.deposit).toLocaleString()}
+          value={formatPkr(booking.price - booking.deposit)}
         />
         <Row
           label="Payment"
-          value={booking.paymentMethod + " · " + booking.paymentStatus}
+          value={booking.paymentMethod + " Â· " + booking.paymentStatus}
         />
       </View>
       <Text style={s.section}>Activity</Text>
@@ -119,7 +112,7 @@ function Header() {
         style={s.backButton}
         onPress={() => router.back()}
       >
-        <Text style={s.back}>‹</Text>
+        <Text style={s.back}>â€¹</Text>
       </Pressable>
       <Text style={s.navTitle}>Booking details</Text>
       <View style={{ width: 36 }} />
@@ -144,23 +137,7 @@ function Event({ title, detail }: { title: string; detail: string }) {
       </View>
     </View>
   );
-}
-function Choice({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable onPress={onPress} style={[s.choice, selected && s.choiceOn]}>
-      <Text style={[s.choiceText, selected && s.choiceTextOn]}>{label}</Text>
-    </Pressable>
-  );
-}
-const s = StyleSheet.create({
+}const s = StyleSheet.create({
   backButton: {
     width: 48,
     height: 48,
