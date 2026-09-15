@@ -91,6 +91,47 @@ async function salonRatings(
   });
   return map;
 }
+// Batched counterparts to activeServices/salonHours. The salon list feeds both the
+// home screen and the Salons tab, and previously issued two requests per salon inside
+// a map; these keep it to a flat 4 regardless of how many salons load. Same filters
+// and ordering as the single-salon versions, so rendered output is unchanged.
+async function activeServicesFor(salonIds: string[]): Promise<Map<string, Service[]>> {
+  const map = new Map<string, Service[]>();
+  if (!salonIds.length) return map;
+  const { data, error } = await supabase
+    .from("salon_services")
+    .select("*, service_categories(name)")
+    .in("salon_id", salonIds)
+    .eq("is_active", true)
+    .order("name");
+  if (error) throw error;
+  for (const row of (data ?? []) as Row[]) {
+    const id = String(row.salon_id);
+    const list = map.get(id) ?? [];
+    list.push(serviceFrom(row));
+    map.set(id, list);
+  }
+  return map;
+}
+
+async function salonHoursFor(salonIds: string[]): Promise<Map<string, Row[]>> {
+  const map = new Map<string, Row[]>();
+  if (!salonIds.length) return map;
+  const { data, error } = await supabase
+    .from("salon_hours")
+    .select("*")
+    .in("salon_id", salonIds)
+    .order("day_of_week");
+  if (error) throw error;
+  for (const row of (data ?? []) as Row[]) {
+    const id = String(row.salon_id);
+    const list = map.get(id) ?? [];
+    list.push(row);
+    map.set(id, list);
+  }
+  return map;
+}
+
 export async function fetchSalons(): Promise<Salon[]> {
   requireSupabaseConfig();
   const { data, error } = await supabase
@@ -101,16 +142,16 @@ export async function fetchSalons(): Promise<Salon[]> {
     .order("name");
   if (error) throw error;
   const rows = data ?? [];
-  const ratings = await salonRatings(rows.map((row) => String(row.id)));
-  return Promise.all(
-    rows.map(async (row) => {
-      const [services, hours] = await Promise.all([
-        activeServices(row.id),
-        salonHours(row.id),
-      ]);
-      return salonFrom(row, services, hours, ratings.get(String(row.id)));
-    }),
-  );
+  const ids = rows.map((row) => String(row.id));
+  const [ratings, services, hours] = await Promise.all([
+    salonRatings(ids),
+    activeServicesFor(ids),
+    salonHoursFor(ids),
+  ]);
+  return rows.map((row) => {
+    const id = String(row.id);
+    return salonFrom(row, services.get(id) ?? [], hours.get(id) ?? [], ratings.get(id));
+  });
 }
 export async function fetchSalon(id: string): Promise<Salon | null> {
   requireSupabaseConfig();
