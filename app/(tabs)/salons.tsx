@@ -5,7 +5,7 @@ import { colors, radius, spacing } from "@/constants/theme";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { fetchSalons } from "@/services/salonService";
+import { fetchSalons, salonMatchesSearch } from "@/services/salonService";
 import { Salon } from "@/types";
 export default function Salons() {
   const [items, setItems] = useState<Salon[]>([]);
@@ -21,9 +21,7 @@ export default function Salons() {
       .finally(() => setLoading(false));
   }, []);
   useFocusEffect(load);
-  const visible = items.filter((x) =>
-    `${x.name} ${x.area} ${x.city}`.toLowerCase().includes(query.toLowerCase()),
-  );
+  const visible = items.filter((x) => salonMatchesSearch(x, query));
   return (
     <Screen>
       <Text style={s.title}>Find a salon</Text>
@@ -36,7 +34,7 @@ export default function Salons() {
           value={query}
           onChangeText={setQuery}
           style={{ flex: 1, minHeight: 50 }}
-          placeholder="Salon name or area"
+          placeholder="Salon, city, area, or service"
           placeholderTextColor={colors.muted}
         />
       </View>
@@ -47,7 +45,13 @@ export default function Salons() {
       ) : visible.length ? (
         visible.map((x) => <SalonCard key={x.id} salon={x} />)
       ) : (
-        <State text="No salons available yet." />
+        <State
+          text={
+            query.trim()
+              ? "No salons match that search."
+              : "No salons available yet."
+          }
+        />
       )}
     </Screen>
   );

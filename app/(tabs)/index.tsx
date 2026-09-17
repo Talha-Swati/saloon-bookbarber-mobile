@@ -15,7 +15,11 @@ import { colors, radius, spacing } from "@/constants/theme";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator } from "react-native";
-import { fetchMyBookings, fetchSalons } from "@/services/salonService";
+import {
+  fetchMyBookings,
+  fetchSalons,
+  salonMatchesSearch,
+} from "@/services/salonService";
 import { useAuth } from "@/providers/AuthProvider";
 import { Booking, Salon } from "@/types";
 export default function Home() {
@@ -41,11 +45,7 @@ export default function Home() {
       .finally(() => setLoading(false));
   }, [session]);
   useFocusEffect(load);
-  const visible = items.filter((x) =>
-    `${x.name} ${x.area} ${x.services.map((y) => y.name).join(" ")}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
+  const visible = items.filter((x) => salonMatchesSearch(x, query));
   const serviceCategories = [
     ...new Set(
       items.flatMap((x) => x.services.map((y) => y.category).filter(Boolean)),
@@ -74,7 +74,7 @@ export default function Home() {
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search salons or services"
+          placeholder="Search salons, cities, or services"
           placeholderTextColor={colors.muted}
           style={s.input}
         />

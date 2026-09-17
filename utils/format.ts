@@ -49,3 +49,27 @@ export function formatDateLabel(iso: string): string {
 export function formatPkr(amount: number): string {
   return `PKR ${Number(amount ?? 0).toLocaleString()}`;
 }
+
+/**
+ * A salon's star rating as it should appear, or null when there is nothing to show.
+ *
+ * `rating` is an average recomputed from the `reviews` rows on every request, so it is
+ * routinely a value like 4.333333333333333. Interpolating it directly - which both the
+ * salon card and the salon detail screen did - put all sixteen digits on screen, and
+ * rendered a brand-new salon with no reviews at all as "★ 0", which reads as one star.
+ *
+ * One decimal place, matching the web directory's `salon.rating.toFixed(1)`, so the same
+ * salon shows the same number on the website and in the app.
+ */
+export function formatRating(rating: number | null | undefined): string | null {
+  if (rating === null || rating === undefined) return null;
+  if (!Number.isFinite(rating) || rating <= 0) return null;
+  return rating.toFixed(1);
+}
+
+/** "12 reviews" / "1 review" / "No reviews yet" - the count in words, pluralised. */
+export function formatReviewCount(count: number): string {
+  const n = Number(count ?? 0);
+  if (n <= 0) return "No reviews yet";
+  return `${n.toLocaleString()} review${n === 1 ? "" : "s"}`;
+}

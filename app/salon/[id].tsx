@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator } from "react-native";
 import { fetchSalon } from "@/services/salonService";
 import { Salon } from "@/types";
-import { formatPkr } from "@/utils/format";
+import { formatPkr, formatRating, formatReviewCount } from "@/utils/format";
 export default function SalonDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [salon, setSalon] = useState<Salon | null>(null);
@@ -46,7 +46,7 @@ export default function SalonDetail() {
     );
   return (
     <Screen>
-      <View style={[s.cover, { backgroundColor: salon.accent }]}>
+      <View style={s.cover}>
         <Pressable onPress={() => router.back()} style={s.back}>
           <Text style={s.backText}>‹</Text>
         </Pressable>
@@ -63,10 +63,15 @@ export default function SalonDetail() {
           {salon.isOpen ? "ACTIVE" : "CLOSED"}
         </Text>
       </View>
-      <Text style={s.rating}>
-        ★ {salon.rating} <Text style={s.muted}>({salon.reviews} reviews)</Text>
-      </Text>
-      <Text style={s.description}>{salon.description}</Text>
+      {formatRating(salon.rating) ? (
+        <Text style={s.rating}>
+          ★ {formatRating(salon.rating)}{" "}
+          <Text style={s.muted}>({formatReviewCount(salon.reviews)})</Text>
+        </Text>
+      ) : (
+        <Text style={[s.rating, s.muted]}>{formatReviewCount(salon.reviews)}</Text>
+      )}
+      {salon.description ? <Text style={s.description}>{salon.description}</Text> : null}
       <SectionHeader title="Services" />
       <Text style={s.hint}>Select one or more services for this visit.</Text>
       {salon.services.length ? (
@@ -114,11 +119,11 @@ export default function SalonDetail() {
               {selectedIds.length} service{selectedIds.length === 1 ? "" : "s"}
             </Text>
             <Text style={s.stickyTotal}>
-              PKR{" "}
-              {salon.services
-                .filter((x) => selectedIds.includes(x.id))
-                .reduce((sum, x) => sum + x.price, 0)
-                .toLocaleString()}
+              {formatPkr(
+                salon.services
+                  .filter((x) => selectedIds.includes(x.id))
+                  .reduce((sum, x) => sum + x.price, 0),
+              )}
             </Text>
           </View>
           <Pressable
@@ -139,6 +144,7 @@ export default function SalonDetail() {
 }
 const s = StyleSheet.create({
   cover: {
+    backgroundColor: colors.deepGreen,
     height: 190,
     borderRadius: radius.md,
     alignItems: "center",
