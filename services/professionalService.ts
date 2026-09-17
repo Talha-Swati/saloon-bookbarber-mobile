@@ -32,7 +32,18 @@ export type ProfessionalBooking = {
   date: string;
   time: string;
   durationMinutes: number;
+  price: number;
+  /** Set when this booking is one service of a multi-service visit. */
+  groupId: string | null;
+  notes: string | null;
   status: ProfessionalBookingStatus;
+};
+
+export type ProfessionalTimeOff = {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string | null;
 };
 
 export type ProfessionalProfile = {
@@ -41,7 +52,19 @@ export type ProfessionalProfile = {
   salonName: string;
   specialty: string;
   linkedServices: string[];
+  /**
+   * Employment status (professionals.is_active). A barber who is not active cannot see
+   * their bookings at all - bookings_professional_select_assigned requires it.
+   */
   working: boolean;
+  /**
+   * The off-duty switch a salon admin controls (professionals.is_accepting_bookings,
+   * migration 026). False means no NEW work is routed here; existing appointments are
+   * untouched and still shown. Distinct from `working` on purpose.
+   */
+  acceptingBookings: boolean;
+  /** Current and upcoming absences the salon has scheduled for this barber. */
+  timeOff: ProfessionalTimeOff[];
 };
 
 const profile: ProfessionalProfile = {
@@ -51,14 +74,16 @@ const profile: ProfessionalProfile = {
   specialty: "Haircuts and beard grooming",
   linkedServices: ["Classic Haircut", "Haircut & Beard Trim", "Beard Trim"],
   working: true,
+  acceptingBookings: true,
+  timeOff: [],
 };
 
 let bookings: ProfessionalBooking[] = [
-  { id: "pro-b1", customerName: "Hamza Ali", customerPhone: "+92 300 1234567", serviceName: "Classic Haircut", date: "today", time: "10:30 AM", durationMinutes: 45, status: "confirmed" },
-  { id: "pro-b2", customerName: "Usman Raza", customerPhone: "+92 301 7654321", serviceName: "Haircut & Beard Trim", date: "today", time: "12:00 PM", durationMinutes: 60, status: "checked_in" },
-  { id: "pro-b3", customerName: "Bilal Ahmed", customerPhone: "+92 321 1122334", serviceName: "Beard Trim", date: "today", time: "2:30 PM", durationMinutes: 30, status: "completed" },
-  { id: "pro-b4", customerName: "Omar Farooq", customerPhone: "+92 333 9988776", serviceName: "Classic Haircut", date: "Tomorrow", time: "11:00 AM", durationMinutes: 45, status: "confirmed" },
-  { id: "pro-b5", customerName: "Saad Malik", customerPhone: "+92 302 4455667", serviceName: "Haircut & Beard Trim", date: "Mon, 7 Sep", time: "4:00 PM", durationMinutes: 60, status: "confirmed" },
+  { id: "pro-b1", customerName: "Hamza Ali", customerPhone: "+92 300 1234567", serviceName: "Classic Haircut", date: "today", time: "10:30 AM", durationMinutes: 45, price: 1200, groupId: null, notes: null, status: "confirmed" },
+  { id: "pro-b2", customerName: "Usman Raza", customerPhone: "+92 301 7654321", serviceName: "Haircut & Beard Trim", date: "today", time: "12:00 PM", durationMinutes: 60, price: 1800, groupId: null, notes: null, status: "checked_in" },
+  { id: "pro-b3", customerName: "Bilal Ahmed", customerPhone: "+92 321 1122334", serviceName: "Beard Trim", date: "today", time: "2:30 PM", durationMinutes: 30, price: 700, groupId: null, notes: null, status: "completed" },
+  { id: "pro-b4", customerName: "Omar Farooq", customerPhone: "+92 333 9988776", serviceName: "Classic Haircut", date: "Tomorrow", time: "11:00 AM", durationMinutes: 45, price: 1200, groupId: null, notes: null, status: "confirmed" },
+  { id: "pro-b5", customerName: "Saad Malik", customerPhone: "+92 302 4455667", serviceName: "Haircut & Beard Trim", date: "Mon, 7 Sep", time: "4:00 PM", durationMinutes: 60, price: 1800, groupId: null, notes: null, status: "confirmed" },
 ];
 
 const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 120));
@@ -78,7 +103,7 @@ const allowedTransitions: Partial<Record<ProfessionalBookingStatus, Professional
 // scopes every query below to the signed-in professional's own row/bookings; no client-side
 // filtering by user id is needed or done.
 const bookingColumns =
-  "id, status, start_time, customer_name_snapshot, customer_phone_snapshot, service_name_snapshot, duration_minutes_snapshot";
+  "id, status, start_time, end_time, booking_group_id, notes, customer_name_snapshot, customer_phone_snapshot, service_name_snapshot, duration_minutes_snapshot, service_price_snapshot";
 
 function bookingFromRow(row: Row): ProfessionalBooking {
   return {
@@ -89,6 +114,9 @@ function bookingFromRow(row: Row): ProfessionalBooking {
     date: dateLabel(row.start_time),
     time: formatClockTime(row.start_time),
     durationMinutes: Number(row.duration_minutes_snapshot ?? 0),
+    price: Number(row.service_price_snapshot ?? 0),
+    groupId: row.booking_group_id ? String(row.booking_group_id) : null,
+    notes: row.notes ?? null,
     status: row.status as ProfessionalBookingStatus,
   };
 }
@@ -123,6 +151,19 @@ export async function fetchProfessionalProfile(mode: ProfessionalDataMode) {
     linkedServices = (services ?? []).map((service: Row) => service.name);
   }
 
+  // Both of these depend on migration 026. Failures are swallowed rather than thrown:
+  // before 026 is applied the workspace should still open and simply not mention duty
+  // status, instead of refusing to load at all.
+  const [duty, off] = await Promise.all([
+    supabase.from("professionals").select("is_accepting_bookings").eq("id", prof.id).maybeSingle(),
+    supabase
+      .from("professional_time_off")
+      .select("id, starts_at, ends_at, reason")
+      .eq("professional_id", prof.id)
+      .gte("ends_at", new Date().toISOString())
+      .order("starts_at", { ascending: true }),
+  ]);
+
   const salon = Array.isArray(prof.salons) ? prof.salons[0] : prof.salons;
   return {
     id: String(prof.id),
@@ -131,7 +172,40 @@ export async function fetchProfessionalProfile(mode: ProfessionalDataMode) {
     specialty: prof.specialty,
     linkedServices,
     working: Boolean(prof.is_active),
+    acceptingBookings: duty.error ? true : (duty.data as Row | null)?.is_accepting_bookings !== false,
+    timeOff: off.error
+      ? []
+      : ((off.data ?? []) as Row[]).map((row) => ({
+          id: String(row.id),
+          startsAt: row.starts_at,
+          endsAt: row.ends_at,
+          reason: row.reason ?? null,
+        })),
   };
+}
+
+/**
+ * The other services in the same visit.
+ *
+ * A multi-service visit is N booking rows (016_multi_service_bookings.sql), so a barber
+ * opening "Classic Haircut at 2:45" has no way to tell the same customer is also booked
+ * for a Beard Trim straight after it - they would finish and call the next person. RLS
+ * scopes this to rows assigned to this barber, so it shows the parts of the visit they
+ * are actually doing.
+ */
+export async function fetchVisitBookings(
+  groupId: string,
+  mode: ProfessionalDataMode,
+): Promise<ProfessionalBooking[]> {
+  if (mode === "demo") return [];
+  requireSupabaseConfig();
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(bookingColumns)
+    .eq("booking_group_id", groupId)
+    .order("start_time", { ascending: true });
+  if (error) return [];
+  return (data ?? []).map(bookingFromRow);
 }
 
 export async function fetchAssignedBookings(mode: ProfessionalDataMode) {

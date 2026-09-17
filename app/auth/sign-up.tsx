@@ -22,7 +22,18 @@ export default function SignUp() {
     if (password !== confirmPassword) return Alert.alert("Passwords do not match", "Re-enter the same password in both fields.");
     setBusy(true);
     try {
-      await signUp(fullName, email, password, role);
+      const outcome = await signUp(fullName, email, password, role);
+      // Verification required: the account exists, so continue into the PIN screen
+      // instead of reporting a failure the person cannot act on. fullName and role ride
+      // along because the profiles row can only be written once the code is verified and
+      // a real session exists.
+      if (outcome.status === "confirm_email") {
+        router.replace({
+          pathname: "/auth/verify-email",
+          params: { email: outcome.email, fullName: fullName.trim(), role },
+        });
+        return;
+      }
       router.replace(
         isProfessional ? "/professional" : "/(tabs)/profile",
       );

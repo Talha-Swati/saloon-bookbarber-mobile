@@ -39,7 +39,16 @@ export default function ProfessionalBookings() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; unsubscribe?.(); };
   }, [isDemo, role]));
-  const filtered = items.filter((item) => active === "today" ? item.date === "today" : active === "completed" ? item.status === "completed" : item.date !== "today" && item.status !== "completed" && item.status !== "no_show");
+  // "Upcoming" means work still to do on another day. Cancelled and rescheduled
+  // bookings are neither upcoming nor completed, so they no longer pad the middle tab.
+  const filtered = items.filter((item) =>
+    active === "today"
+      ? item.date === "today"
+      : active === "completed"
+        ? item.status === "completed" || item.status === "no_show"
+        : item.date !== "today" &&
+          (item.status === "confirmed" || item.status === "checked_in" || item.status === "in_service"),
+  );
   return <Screen><Header /><View style={s.tabs}>{(["today", "upcoming", "completed"] as Filter[]).map((filter) => <Pressable key={filter} onPress={() => setActive(filter)} style={[s.tab, active === filter && s.tabOn]}><Text style={[s.tabText, active === filter && s.tabTextOn]}>{filter[0].toUpperCase() + filter.slice(1)}</Text></Pressable>)}</View>{loading ? <ActivityIndicator color={colors.primary} /> : error ? <View><Text style={s.empty}>{error}</Text><Pressable style={s.retry} onPress={() => router.replace("/professional/bookings")}><Text style={s.retryText}>Retry</Text></Pressable></View> : filtered.length ? filtered.map((item) => <Pressable key={item.id} style={s.card} onPress={() => router.push({ pathname: "/professional/booking/[id]", params: { id: item.id } })}><View style={s.top}><Text style={s.name}>{item.customerName}</Text><Status status={item.status} /></View><Text style={s.service}>{item.serviceName}</Text><Text style={s.meta}>{item.date === "today" ? "Today" : item.date} · {item.time} · {item.durationMinutes} min</Text></Pressable>) : <Text style={s.empty}>No assigned bookings in this view.</Text>}</Screen>;
 }
 function Header() { return <View style={s.header}><Pressable accessibilityLabel="Go back" onPress={() => router.back()} style={s.backButton}><Text style={s.back}>‹</Text></Pressable><Text style={s.title}>Assigned bookings</Text><View style={{ width: 44 }} /></View>; }

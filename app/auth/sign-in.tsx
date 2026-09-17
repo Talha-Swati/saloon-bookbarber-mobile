@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput } from
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 import { signIn } from "@/services/authService";
+import { supabase } from "@/services/supabase";
 import { useAuth } from "@/providers/AuthProvider";
 
 export default function SignIn() {
@@ -20,12 +21,32 @@ export default function SignIn() {
     }
     setBusy(true);
     try {
-      if (demoBypassEnabled)
+      if (demoBypassEnabled) {
         await signInDemo(professionalEntry ? "professional" : "customer");
-      else await signIn(email, password);
-      router.replace(
-        professionalEntry ? "/professional" : "/(tabs)",
-      );
+        router.replace(professionalEntry ? "/professional" : "/(tabs)");
+        return;
+      }
+
+      const { role } = await signIn(email, password);
+
+      // Routed by what the account IS, not by which entry button was tapped. `entry`
+      // only decides the wording on the way in; it is not evidence about the account.
+      if (role === "professional") {
+        router.replace("/professional");
+        return;
+      }
+      if (role === "salon_admin" || role === "super_admin") {
+        // This app has customer and barber screens only. Signing them out is kinder
+        // than dropping them into a customer session where RLS returns nothing and the
+        // Book button would create bookings under an admin account.
+        await supabase.auth.signOut();
+        Alert.alert(
+          "Use the web console",
+          "This is a salon administrator account. Manage bookings from the BookBarber admin console in a browser — the mobile app is for customers and barbers.",
+        );
+        return;
+      }
+      router.replace("/(tabs)");
     } catch (error) {
       Alert.alert("Unable to sign in", error instanceof Error ? error.message : "Please try again.");
     } finally {
