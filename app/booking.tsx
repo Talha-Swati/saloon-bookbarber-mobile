@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { BackHandler, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 import { ActivityIndicator, Alert } from "react-native";
@@ -11,26 +11,34 @@ import {
   fetchAvailability,
   fetchSalon,
 } from "@/services/salonService";
+import {
+  DummyPaymentError,
+  PAYMENT_TEST_MODE,
+  runDummyEasypaisaPayment,
+} from "@/services/dummyPayment";
 import { useAuth } from "@/providers/AuthProvider";
 import { formatClockTime, formatPkr } from "@/utils/format";
-const dates = Array.from({ length: 7 }, (_, i) => {
-  const d = new Date();
-  d.setDate(d.getDate() + i + 1);
-  return {
-    value: d.toISOString().slice(0, 10),
-    label: d.toLocaleDateString(undefined, {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    }),
-  };
-});
+import {
+  BOOKING_WINDOW_DAYS,
+  bookingDateLabel,
+  bookingWindowDates,
+} from "@/utils/bookingWindow";
+
+// Services, date, slot, review, pay. Payment is the last step rather than an
+// afterthought on the confirmation screen, because it is mandatory: the visit is not
+// booked until it clears.
+const TOTAL_STEPS = 5;
+const PAYMENT_STEP = 5;
+
 export default function BookingFlow() {
   const p = useLocalSearchParams<{ salonId: string; serviceIds: string }>();
   const { session: activeSession, role } = useAuth();
   const session = role === "customer" ? activeSession : null;
   const [salon, setSalon] = useState<Salon | null>(null);
   const [step, setStep] = useState(1);
+  // Phase 3C booking window: today + the next six calendar days, in the device's local
+  // calendar. Computed per mount (not at module scope) so it cannot go stale.
+  const dates = useMemo(() => bookingWindowDates(), []);
   const [date, setDate] = useState(dates[0].value);
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [time, setTime] = useState("");
@@ -38,6 +46,13 @@ export default function BookingFlow() {
   const [slotLoading, setSlotLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // Payment step state. Nothing here is persisted or transmitted — see
+  // services/dummyPayment.ts.
+  const [mobile, setMobile] = useState("");
+  const [pin, setPin] = useState("");
+  const [payError, setPayError] = useState("");
+
   const serviceIds = (p.serviceIds ?? "").split(",").filter(Boolean);
   useEffect(() => {
     if (!p.salonId) return;
@@ -95,9 +110,23 @@ export default function BookingFlow() {
     if (step === 2) {
       setStep(3);
       await loadSlots();
-    } else if (step < 4) setStep(step + 1);
+    } else if (step < TOTAL_STEPS) setStep(step + 1);
   };
-  const confirm = async () => {
+
+  /**
+   * Pay, then book — in that order, and only in that order.
+   *
+   * The booking is created AFTER payment clears rather than before, so an abandoned
+   * checkout leaves nothing behind: no half-made appointment sitting in the salon's list
+   * for a customer who walked away at the payment screen. The cost is that the slot is
+   * not held during the (test-mode, ~2 second) payment, so somebody else can take it in
+   * between. The server re-checks availability inside create_customer_booking and raises
+   * SLOT_UNAVAILABLE, which is handled below by sending the customer back to pick
+   * another time — with an explicit line about the money, because "your payment went
+   * through but you have no booking" is the one thing a person must never be left
+   * guessing about.
+   */
+  const payAndConfirm = async () => {
     if (!session) {
       Alert.alert(
         "Sign in required",
@@ -105,9 +134,26 @@ export default function BookingFlow() {
       );
       return;
     }
-    if (!salon || services.length === 0 || !time) return;
+    // Guards a double submit: the button is disabled while `busy` is true, but a fast
+    // second tap can land before the re-render.
+    if (busy || !salon || services.length === 0 || !time) return;
     setBusy(true);
+    setPayError("");
     setError("");
+
+    let payment;
+    try {
+      payment = await runDummyEasypaisaPayment({ mobile, pin, amount: totalPrice });
+    } catch (e) {
+      setBusy(false);
+      setPayError(
+        e instanceof DummyPaymentError
+          ? e.message
+          : "Payment could not be completed. Please try again.",
+      );
+      return;
+    }
+
     try {
       const result = await createBookingGroup({ serviceIds, startTime: time });
       router.replace({
@@ -116,12 +162,22 @@ export default function BookingFlow() {
           salon: salon.name,
           items: JSON.stringify(result.items),
           total: String(result.total),
+          paymentReference: payment.reference,
+          paymentAccount: payment.accountMasked,
         },
       });
     } catch (e) {
-      setError(bookingErrorMessage(e));
+      setError(
+        `${bookingErrorMessage(e)}${
+          PAYMENT_TEST_MODE
+            ? " No money was taken — this is a test-mode payment."
+            : ""
+        }`,
+      );
+      setPin("");
       setTime("");
       setStep(3);
+      await loadSlots();
     } finally {
       setBusy(false);
     }
@@ -143,6 +199,9 @@ export default function BookingFlow() {
         </Pressable>
       </Screen>
     );
+
+  const continueDisabled = busy || slotLoading || (step === 3 && !time);
+
   return (
     <Screen>
       <View style={s.nav}>
@@ -158,13 +217,15 @@ export default function BookingFlow() {
         <View style={{ width: 36 }} />
       </View>
       <View style={s.steps}>
-        {[1, 2, 3, 4].map((x) => (
+        {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((x) => (
           <View key={x} style={[s.dot, x <= step && s.dotActive]}>
             <Text style={[s.dotText, x <= step && s.dotTextActive]}>{x}</Text>
           </View>
         ))}
       </View>
-      <Text style={s.kicker}>STEP {step} OF 4</Text>
+      <Text style={s.kicker}>
+        STEP {step} OF {TOTAL_STEPS}
+      </Text>
       {step === 1 && (
         <>
           <Text style={s.title}>Selected services</Text>
@@ -182,18 +243,21 @@ export default function BookingFlow() {
           <View style={s.money}>
             <Text style={s.salon}>Total</Text>
             <Text style={s.price}>
-              {totalDuration} min · PKR {totalPrice.toLocaleString()}
+              {totalDuration} min · {formatPkr(totalPrice)}
             </Text>
           </View>
           <Text style={s.note}>
-            No barber selection is required. Your salon will handle the
-            appointment.
+            No barber selection is required — the salon assigns a free barber to
+            your visit automatically.
           </Text>
         </>
       )}
       {step === 2 && (
         <>
           <Text style={s.title}>Choose a date</Text>
+          <Text style={s.subtitle}>
+            Bookings open for the next {BOOKING_WINDOW_DAYS} days.
+          </Text>
           <View style={s.grid}>
             {dates.map((x) => (
               <Choice
@@ -209,7 +273,7 @@ export default function BookingFlow() {
       {step === 3 && (
         <>
           <Text style={s.title}>Choose an available slot</Text>
-          <Text style={s.subtitle}>{date}</Text>
+          <Text style={s.subtitle}>{bookingDateLabel(date)}</Text>
           {slotLoading ? (
             <ActivityIndicator color={colors.primary} />
           ) : error ? (
@@ -242,16 +306,19 @@ export default function BookingFlow() {
           <Text style={s.title}>Booking summary</Text>
           <Text style={s.salon}>{salon.name}</Text>
           <Text style={s.rowText}>
-            {date} · starting {time}
+            {bookingDateLabel(date)} · starting {formatClockTime(time)}
+          </Text>
+          <Text style={s.muted}>
+            {services.length} service{services.length === 1 ? "" : "s"} ·{" "}
+            {totalDuration} min
           </Text>
           <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
             {estimatedSchedule(time).map(({ service: svc, start, end }) => (
               <View style={s.card} key={svc.id}>
                 <Text style={s.service}>{svc.name}</Text>
                 <Text style={s.muted}>
-                  {start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                  {" – "}
-                  {end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} (est.)
+                  {formatClockTime(start.toISOString())} –{" "}
+                  {formatClockTime(end.toISOString())} (est.)
                 </Text>
                 <View style={s.line}>
                   <Text style={s.muted}>{svc.duration} minutes</Text>
@@ -266,23 +333,112 @@ export default function BookingFlow() {
           </View>
           <Text style={s.note}>
             Estimated times shown above — final times are calculated and saved by
-            the salon backend when you confirm. This is pay-at-salon; no payment is
-            collected now.
+            the salon backend once payment clears. Payment is required to confirm
+            this booking.
+          </Text>
+        </>
+      )}
+      {step === PAYMENT_STEP && (
+        <>
+          <Text style={s.title}>Payment</Text>
+
+          {/* Impossible to miss, and above the amount. A payment screen that looks
+              real and takes nothing must say so before anything else. */}
+          {PAYMENT_TEST_MODE && (
+            <View style={s.testBanner}>
+              <Text style={s.testBannerTitle}>TEST MODE — NO REAL PAYMENT</Text>
+              <Text style={s.testBannerBody}>
+                Easypaisa is not connected yet. Nothing is charged, no money moves
+                and no card or wallet is contacted. Any 5-digit PIN works.
+              </Text>
+            </View>
+          )}
+
+          <View style={s.amountCard}>
+            <Text style={s.amountLabel}>Amount due</Text>
+            <Text style={s.amountValue}>{formatPkr(totalPrice)}</Text>
+            <Text style={s.muted}>
+              {services.length} service{services.length === 1 ? "" : "s"} at{" "}
+              {salon.name}
+            </Text>
+          </View>
+
+          <Text style={s.section}>Pay with</Text>
+          <View style={s.methodCard}>
+            <View style={s.methodMark}>
+              <Text style={s.methodMarkText}>ep</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.methodName}>Easypaisa</Text>
+              <Text style={s.muted}>Mobile account</Text>
+            </View>
+            <View style={s.radioOn}>
+              <View style={s.radioDot} />
+            </View>
+          </View>
+
+          <Text style={s.fieldLabel}>Easypaisa mobile number</Text>
+          <TextInput
+            autoComplete="tel"
+            keyboardType="phone-pad"
+            maxLength={15}
+            onChangeText={(value) => {
+              setMobile(value);
+              if (payError) setPayError("");
+            }}
+            placeholder="03XX XXXXXXX"
+            placeholderTextColor={colors.muted}
+            style={s.input}
+            value={mobile}
+          />
+
+          <Text style={s.fieldLabel}>Easypaisa PIN</Text>
+          <TextInput
+            keyboardType="number-pad"
+            maxLength={5}
+            onChangeText={(value) => {
+              setPin(value.replace(/\D/g, ""));
+              if (payError) setPayError("");
+            }}
+            placeholder="5-digit PIN"
+            placeholderTextColor={colors.muted}
+            secureTextEntry
+            style={s.input}
+            value={pin}
+          />
+
+          {payError ? <Text style={s.error}>{payError}</Text> : null}
+
+          <Text style={s.note}>
+            Your slot is confirmed the moment payment clears. If someone books the
+            same slot first, you will be asked to pick another time and nothing is
+            charged.
           </Text>
         </>
       )}
       <Pressable
-        disabled={busy || slotLoading || (step === 3 && !time)}
-        onPress={step === 4 ? confirm : next}
+        disabled={step === PAYMENT_STEP ? busy : continueDisabled}
+        onPress={step === PAYMENT_STEP ? payAndConfirm : next}
         style={[
           s.primary,
-          (busy || slotLoading || (step === 3 && !time)) && s.disabled,
+          (step === PAYMENT_STEP ? busy : continueDisabled) && s.disabled,
         ]}
       >
-        <Text style={s.primaryText}>
-          {busy ? "Confirming…" : step === 4 ? "Confirm booking" : "Continue"}
-        </Text>
+        {busy ? (
+          <ActivityIndicator color={colors.onPrimary} />
+        ) : (
+          <Text style={s.primaryText}>
+            {step === PAYMENT_STEP
+              ? `Pay ${formatPkr(totalPrice)}`
+              : step === 4
+                ? "Continue to payment"
+                : "Continue"}
+          </Text>
+        )}
       </Pressable>
+      {step === PAYMENT_STEP && busy && (
+        <Text style={s.processing}>Authorising with Easypaisa…</Text>
+      )}
     </Screen>
   );
 }
@@ -392,7 +548,6 @@ function Choice({
     marginTop: spacing.lg,
     marginBottom: spacing.md,
   },
-  payments: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   money: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -401,6 +556,107 @@ function Choice({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  testBanner: {
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+    backgroundColor: "#FFFBEB",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  testBannerTitle: {
+    color: "#92400E",
+    fontWeight: "800",
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
+  testBannerBody: {
+    color: "#92400E",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 6,
+  },
+  amountCard: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+  },
+  amountLabel: {
+    color: colors.deepGreen,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  amountValue: {
+    color: colors.text,
+    fontSize: 34,
+    fontWeight: "800",
+    marginVertical: 6,
+  },
+  methodCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  methodMark: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+    backgroundColor: "#0F7A3D",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  methodMarkText: { color: "#FFFFFF", fontWeight: "800", fontSize: 18 },
+  methodName: { color: colors.text, fontWeight: "800", fontSize: 16 },
+  radioOn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+  },
+  fieldLabel: {
+    color: colors.text,
+    fontWeight: "700",
+    fontSize: 13,
+    marginTop: spacing.lg,
+    marginBottom: 8,
+  },
+  input: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    color: colors.text,
+    fontSize: 16,
+  },
+  error: {
+    color: colors.danger,
+    marginTop: spacing.md,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  processing: {
+    color: colors.muted,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: spacing.sm,
   },
   primary: {
     minHeight: 52,

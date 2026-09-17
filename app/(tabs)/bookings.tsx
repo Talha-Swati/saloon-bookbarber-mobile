@@ -4,9 +4,9 @@ import { BookingCard } from "@/components/BookingCard";
 import { Screen } from "@/components/Screen";
 import { colors, spacing } from "@/constants/theme";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator } from "react-native";
-import { fetchMyBookings } from "@/services/salonService";
+import { fetchMyBookings, subscribeToMyBookings } from "@/services/salonService";
 import { useAuth } from "@/providers/AuthProvider";
 import { Booking } from "@/types";
 import { radius } from "@/constants/theme";
@@ -18,6 +18,12 @@ export default function Bookings() {
   const [items, setItems] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // A demo session has no real user id and nothing to subscribe to.
+  const customerId =
+    session && "user" in session && session.user && !("kind" in session)
+      ? String(session.user.id)
+      : null;
+
   const load = useCallback(() => {
     if (!session) {
       setItems([]);
@@ -31,6 +37,21 @@ export default function Bookings() {
       .finally(() => setLoading(false));
   }, [session]);
   useFocusEffect(load);
+
+  // Live, so the salon checking you in — or auto-assignment naming your barber — lands
+  // on this screen while the customer is looking at it, instead of waiting for them to
+  // navigate away and back. Silent refresh: no spinner, because nothing the customer did
+  // caused it.
+  useEffect(() => {
+    if (!customerId) return;
+    let cancelled = false;
+    const unsubscribe = subscribeToMyBookings(customerId, () => {
+      fetchMyBookings()
+        .then((rows) => { if (!cancelled) setItems(rows); })
+        .catch(() => {});
+    });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [customerId]);
   const visible = items.filter((x) => x.status === active);
   return (
     <Screen>

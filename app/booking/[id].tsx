@@ -1,11 +1,18 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { Screen } from "@/components/Screen";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useEffect } from "react";
 import { ActivityIndicator } from "react-native";
-import { fetchBooking } from "@/services/salonService";
+import {
+  bookingErrorMessage,
+  cancelBooking,
+  fetchBooking,
+  fetchBookingPayments,
+  startDepositPayment,
+} from "@/services/salonService";
+import { BookingPayment } from "@/types";
 import { Booking } from "@/types";
 import { formatPkr } from "@/utils/format";
 export default function BookingDetails() {
@@ -13,12 +20,77 @@ export default function BookingDetails() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [payment, setPayment] = useState<BookingPayment | null>(null);
+  const [payingDeposit, setPayingDeposit] = useState(false);
+  const [depositMessage, setDepositMessage] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  // Starts (or resumes) the deposit payment. The amount comes back from the server and
+  // is never sent by this screen; repeat taps are safe because the underlying RPC
+  // returns the booking's existing open payment rather than opening a second one.
+  const payDeposit = async () => {
+    if (payingDeposit) return;
+    setPayingDeposit(true);
+    setDepositMessage("");
+    try {
+      const intent = await startDepositPayment(id);
+      setPayment((prev) =>
+        prev ? { ...prev, amount: intent.amount, currency: intent.currency, status: intent.status } : prev,
+      );
+      if (!intent.providerReady) {
+        setDepositMessage(
+          intent.error ?? "Online payment is not available yet.",
+        );
+      } else if (intent.redirect?.url) {
+        await Linking.openURL(intent.redirect.url);
+      }
+    } catch (e) {
+      setDepositMessage(bookingErrorMessage(e));
+    } finally {
+      setPayingDeposit(false);
+    }
+  };
+  const [actionError, setActionError] = useState("");
+  // Eligibility is the server's call (transition_booking_status rejects anything else
+  // with INVALID_STATUS_TRANSITION); `cancelling` also guards a double submit.
+  const confirmCancel = () => {
+    if (!booking || cancelling) return;
+    Alert.alert(
+      "Cancel this booking?",
+      "Your slot will be released and this cannot be undone.",
+      [
+        { text: "Keep booking", style: "cancel" },
+        {
+          text: "Cancel booking",
+          style: "destructive",
+          onPress: async () => {
+            setCancelling(true);
+            setActionError("");
+            try {
+              await cancelBooking(booking.id);
+              const refreshed = await fetchBooking(booking.id);
+              setBooking(refreshed);
+            } catch (e) {
+              setActionError(bookingErrorMessage(e));
+            } finally {
+              setCancelling(false);
+            }
+          },
+        },
+      ],
+    );
+  };
   useEffect(() => {
     if (!id) return;
     fetchBooking(id)
       .then(setBooking)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    // The deposit figure is read from the payments row the server created — it is never
+    // computed on the device. RLS scopes this to the signed-in customer's own payments.
+    // A booking with no deposit simply has no payment row, and nothing is shown.
+    fetchBookingPayments(id)
+      .then((rows) => setPayment(rows[0] ?? null))
+      .catch(() => setPayment(null));
   }, [id]);
   if (loading)
     return (
@@ -76,6 +148,35 @@ export default function BookingDetails() {
           value={booking.paymentMethod + " · " + booking.paymentStatus}
         />
       </View>
+      {payment && payment.status !== "paid" && (
+        <>
+          <Text style={s.section}>Deposit</Text>
+          <View style={s.card}>
+            <Row
+              label="Due now"
+              value={`${payment.currency} ${payment.amount.toLocaleString()}`}
+            />
+            <Row
+              label="Balance at salon"
+              value={formatPkr(booking.price - payment.amount)}
+            />
+            <Row label="Payment status" value="Awaiting payment" />
+          </View>
+          <Text style={s.paymentNote}>
+            {depositMessage ||
+              "Only the deposit is paid online. The balance is settled at the salon."}
+          </Text>
+          <Pressable
+            disabled={payingDeposit}
+            onPress={payDeposit}
+            style={[s.payButton, payingDeposit && s.disabled]}
+          >
+            <Text style={s.payButtonText}>
+              {payingDeposit ? "Starting payment…" : "Pay deposit"}
+            </Text>
+          </Pressable>
+        </>
+      )}
       <Text style={s.section}>Activity</Text>
       <View style={s.timeline}>
         <Event
@@ -87,6 +188,20 @@ export default function BookingDetails() {
           detail={booking.date + " at " + booking.time}
         />
       </View>
+      {booking.canCancel && (
+        <>
+          {actionError ? <Text style={s.actionError}>{actionError}</Text> : null}
+          <Pressable
+            disabled={cancelling}
+            onPress={confirmCancel}
+            style={[s.destructive, cancelling && s.disabled]}
+          >
+            <Text style={s.destructiveText}>
+              {cancelling ? "Cancelling…" : "Cancel booking"}
+            </Text>
+          </Pressable>
+        </>
+      )}
       {booking.status === "completed" && (
         <Pressable
           onPress={() =>
@@ -138,6 +253,33 @@ function Event({ title, detail }: { title: string; detail: string }) {
     </View>
   );
 }const s = StyleSheet.create({
+  payButton: {
+    minHeight: 52,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.md,
+  },
+  payButtonText: { color: colors.onPrimary, fontWeight: "800", fontSize: 16 },
+  paymentNote: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: spacing.md,
+  },
+  destructive: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.lg,
+  },
+  destructiveText: { color: colors.danger, fontWeight: "800" },
+  disabled: { opacity: 0.5 },
+  actionError: { color: colors.danger, marginTop: spacing.lg },
   backButton: {
     width: 48,
     height: 48,
