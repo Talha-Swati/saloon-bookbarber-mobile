@@ -1,11 +1,63 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
+import Animated, { useAnimatedStyle, withSpring } from "react-native-reanimated";
 import { Screen } from "@/components/Screen";
-import { colors, radius, spacing } from "@/constants/theme";
+import {
+  AppBar,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  Notice,
+  PressableScale,
+  Skeleton,
+  SuccessMark,
+  enterUp,
+  haptics,
+} from "@/components/ui";
+import { colors, radius, spacing, type } from "@/constants/theme";
 import { fetchBooking } from "@/services/salonService";
 import { reviewErrorMessage, submitReview } from "@/services/reviewService";
+import { formatDateLabel } from "@/utils/format";
 import type { Booking } from "@/types";
+
+const MAX = 240;
+
+/** What each rating means, so a person is not left guessing whether 3 is good. */
+const MEANING = ["", "Poor", "Not great", "Fine", "Good", "Excellent"];
+
+function Star({ index, rating, onPress }: { index: number; rating: number; onPress: () => void }) {
+  const on = index <= rating;
+  /**
+   * Every filled star swells; the empty ones sit back at their normal size.
+   *
+   * Derived from `rating` rather than fired imperatively on the tap, which matters for
+   * more than tidiness: tapping 2 after 4 has to shrink stars 3 and 4 back down, and an
+   * animation that only runs on the star you touched cannot do that. Spring the whole row
+   * off one value and lowering a rating animates as naturally as raising it.
+   */
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scale: withSpring(on ? 1.12 : 1, { damping: 10, mass: 0.5 }) }],
+  }));
+  return (
+    <PressableScale
+      accessibilityLabel={`${index} star${index === 1 ? "" : "s"}`}
+      accessibilityState={{ selected: on }}
+      haptic={false}
+      hitSlop={6}
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
+      scaleTo={0.88}
+    >
+      <Animated.View style={style}>
+        <Icon color={on ? "#E0A612" : colors.border} name="star" size={38} />
+      </Animated.View>
+    </PressableScale>
+  );
+}
 
 export default function Review() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -36,6 +88,7 @@ export default function Review() {
       await submitReview({ bookingId, rating, comment: comment.trim() });
       setSent(true);
     } catch (error) {
+      haptics.error();
       setSubmitError(reviewErrorMessage(error));
     } finally {
       setBusy(false);
@@ -45,7 +98,12 @@ export default function Review() {
   if (loading) {
     return (
       <Screen>
-        <ActivityIndicator color={colors.primary} />
+        <AppBar title="Review" />
+        <View style={s.loading}>
+          <Skeleton height={26} width="65%" />
+          <Skeleton height={72} style={{ borderRadius: radius.md }} />
+          <Skeleton height={120} style={{ borderRadius: radius.md }} />
+        </View>
       </Screen>
     );
   }
@@ -53,15 +111,14 @@ export default function Review() {
   if (loadError || !booking || booking.status !== "completed") {
     return (
       <Screen>
-        <Pressable accessibilityLabel="Go back" hitSlop={4} style={s.backButton} onPress={() => router.back()}>
-          <Text style={s.back}>‹</Text>
-        </Pressable>
-        <View style={s.center}>
-          <Text style={s.title}>Review unavailable</Text>
-          <Text style={s.muted}>
-            {loadError || "Reviews can only be submitted for completed bookings."}
-          </Text>
-        </View>
+        <AppBar title="Review" />
+        <EmptyState
+          actionLabel="Back to my bookings"
+          body={loadError || "A visit can be reviewed once the salon has marked it complete."}
+          onAction={() => router.replace("/(tabs)/bookings")}
+          title="Nothing to review yet"
+          tone="error"
+        />
       </Screen>
     );
   }
@@ -69,113 +126,120 @@ export default function Review() {
   if (sent) {
     return (
       <Screen>
-        <View style={s.center}>
-          <View style={s.check}>
-            <Text style={s.checkText}>✓</Text>
-          </View>
-          <Text style={s.title}>Thanks for your review</Text>
-          <Text style={s.muted}>Your feedback helps customers choose with confidence.</Text>
-          <Pressable onPress={() => router.replace("/(tabs)/bookings")} style={s.primary}>
-            <Text style={s.primaryText}>Back to My Bookings</Text>
-          </Pressable>
+        <View style={s.done}>
+          <SuccessMark />
+          <Animated.Text entering={enterUp(1)} style={s.doneTitle}>
+            Thanks for the review
+          </Animated.Text>
+          <Animated.Text entering={enterUp(2)} style={s.doneBody}>
+            It is now on {booking.salonName}, and it helps the next customer choose.
+          </Animated.Text>
+          <Button
+            label="Back to my bookings"
+            onPress={() => router.replace("/(tabs)/bookings")}
+            style={s.doneAction}
+          />
         </View>
       </Screen>
     );
   }
 
+  const ready = rating > 0 && comment.trim().length > 0;
+
   return (
-    <Screen>
-      <Pressable accessibilityLabel="Go back" hitSlop={4} style={s.backButton} onPress={() => router.back()}>
-        <Text style={s.back}>‹</Text>
-      </Pressable>
-      <Text style={s.kicker}>SHARE YOUR EXPERIENCE</Text>
-      <Text style={s.title}>How was your visit?</Text>
-      <View style={s.card}>
-        <Text style={s.salon}>{booking.salonName}</Text>
-        <Text style={s.muted}>
-          {booking.serviceName} · {booking.date}
+    <Screen
+      footer={
+        <Button
+          disabled={!ready}
+          label="Post review"
+          loading={busy}
+          onPress={submit}
+        />
+      }
+    >
+      <AppBar title="Review" />
+
+      <Animated.View entering={enterUp()}>
+        <Text style={s.title}>How was your visit?</Text>
+      </Animated.View>
+
+      <Animated.View entering={enterUp(1)}>
+        <Card style={s.booking}>
+          <Text style={s.salon}>{booking.salonName}</Text>
+          <Text style={s.meta}>
+            {booking.serviceName} · {formatDateLabel(booking.startTime)}
+          </Text>
+        </Card>
+      </Animated.View>
+
+      <Animated.View entering={enterUp(2)}>
+        <Text style={s.label}>Your rating</Text>
+        <View style={s.stars}>
+          {[1, 2, 3, 4, 5].map((value) => (
+            <Star index={value} key={value} onPress={() => setRating(value)} rating={rating} />
+          ))}
+        </View>
+        {/* Reserved whether or not a rating is set, so the comment box does not jump
+            down the screen the moment a star is tapped. */}
+        <Text style={s.meaning}>{rating ? MEANING[rating] : " "}</Text>
+      </Animated.View>
+
+      <Animated.View entering={enterUp(3)}>
+        <Text style={s.label}>What happened</Text>
+        <TextInput
+          accessibilityLabel="Your review"
+          maxLength={MAX}
+          multiline
+          onChangeText={setComment}
+          placeholder="Was the barber on time? Did you get what you asked for?"
+          placeholderTextColor={colors.muted}
+          style={s.input}
+          value={comment}
+        />
+        <Text style={s.count}>
+          {comment.length}/{MAX}
         </Text>
-      </View>
-      <Text style={s.label}>Your rating</Text>
-      <View style={s.stars}>
-        {[1, 2, 3, 4, 5].map((x) => (
-          <Pressable key={x} hitSlop={8} onPress={() => setRating(x)}>
-            <Text style={[s.star, x <= rating && s.starOn]}>★</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Text style={s.label}>Short comment</Text>
-      <TextInput
-        multiline
-        maxLength={240}
-        value={comment}
-        onChangeText={setComment}
-        placeholder="What did you like about your visit?"
-        placeholderTextColor={colors.muted}
-        style={s.input}
-      />
-      <Text style={s.count}>{comment.length}/240</Text>
-      {submitError ? <Text style={s.error}>{submitError}</Text> : null}
-      <Pressable
-        disabled={!rating || !comment.trim() || busy}
-        onPress={submit}
-        style={[s.primary, (!rating || !comment.trim() || busy) && { opacity: 0.4 }]}
-      >
-        <Text style={s.primaryText}>{busy ? "Submitting…" : "Submit review"}</Text>
-      </Pressable>
+      </Animated.View>
+
+      {submitError ? (
+        <View style={s.notice}>
+          <Notice body={submitError} title="Review not posted" tone="danger" />
+        </View>
+      ) : null}
     </Screen>
   );
 }
 
 const s = StyleSheet.create({
-  backButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center", marginLeft: -10 },
-  back: { fontSize: 36, color: colors.text, lineHeight: 40 },
-  kicker: { color: colors.deepGreen, fontSize: 11, fontWeight: "800", letterSpacing: 1, marginTop: spacing.md },
-  title: { fontSize: 28, fontWeight: "800", color: colors.text, marginTop: spacing.sm },
-  muted: { color: colors.muted, textAlign: "center", lineHeight: 20, marginTop: spacing.sm },
-  card: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginTop: spacing.lg,
-  },
-  salon: { fontSize: 17, color: colors.text, fontWeight: "800" },
-  label: { color: colors.text, fontWeight: "700", marginTop: spacing.lg, marginBottom: spacing.sm },
-  stars: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  star: { fontSize: 38, color: colors.border },
-  starOn: { color: colors.warning },
+  loading: { gap: spacing.md, marginTop: spacing.md },
+  title: { ...type.display, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.lg },
+  booking: { gap: 4 },
+  salon: { ...type.cardTitle, color: colors.text },
+  meta: { ...type.caption, color: colors.muted },
+  label: { ...type.label, color: colors.secondaryText, marginTop: spacing.lg, marginBottom: spacing.sm },
+  stars: { flexDirection: "row", gap: spacing.sm },
+  meaning: { ...type.caption, fontWeight: "700", color: colors.deepGreen, marginTop: spacing.sm, minHeight: 20 },
   input: {
-    minHeight: 120,
+    minHeight: 130,
     textAlignVertical: "top",
     padding: spacing.md,
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    ...type.body,
     color: colors.text,
   },
-  count: { color: colors.muted, fontSize: 11, textAlign: "right", marginTop: 5 },
-  error: { color: colors.danger, marginTop: spacing.md, textAlign: "center" },
-  primary: {
-    minHeight: 52,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.xl,
+  count: { ...type.label, fontSize: 11, fontWeight: "400", color: colors.muted, textAlign: "right", marginTop: 5 },
+  notice: { marginTop: spacing.md },
+  done: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.md },
+  doneTitle: { ...type.display, color: colors.text, marginTop: spacing.md, textAlign: "center" },
+  doneBody: {
+    ...type.body,
+    color: colors.secondaryText,
+    textAlign: "center",
+    marginTop: spacing.sm,
+    maxWidth: 300,
   },
-  primaryText: { color: colors.onPrimary, fontWeight: "800" },
-  center: { alignItems: "center", justifyContent: "center", paddingTop: 100 },
-  check: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkText: { fontSize: 36, color: colors.deepGreen, fontWeight: "800" },
+  doneAction: { alignSelf: "stretch", marginTop: spacing.xl },
 });

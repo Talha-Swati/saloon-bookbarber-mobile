@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatClockTime, formatDateLabel, formatDbTime, formatPkr } from "@/utils/format";
+import {
+  formatClockTime,
+  formatDateLabel,
+  formatDbTime,
+  formatDuration,
+  formatPkr,
+  relativeDayLabel,
+} from "@/utils/format";
 
 /**
  * Regression cover for the timezone bug found in Phase 1.
@@ -105,5 +112,58 @@ describe("formatDateLabel", () => {
 
   it("returns the input when unparseable", () => {
     expect(formatDateLabel("nonsense")).toBe("nonsense");
+  });
+});
+
+describe("relativeDayLabel", () => {
+  // Fixed reference so the test does not change meaning at midnight.
+  const now = new Date(2026, 8, 22, 14, 0, 0); // 22 Sep 2026, 2pm local
+
+  it("says Today and Tomorrow rather than a date", () => {
+    expect(relativeDayLabel(new Date(2026, 8, 22, 9, 0).toISOString(), now)).toBe("Today");
+    expect(relativeDayLabel(new Date(2026, 8, 23, 9, 0).toISOString(), now)).toBe("Tomorrow");
+  });
+
+  it("compares calendar days, not elapsed hours", () => {
+    // 9am tomorrow is 19 hours away, which is under a day. It is still "Tomorrow", and a
+    // naive hours-based implementation would call it "Today".
+    expect(relativeDayLabel(new Date(2026, 8, 23, 9, 0).toISOString(), now)).toBe("Tomorrow");
+    // 11pm tonight is nine hours away and is still today.
+    expect(relativeDayLabel(new Date(2026, 8, 22, 23, 0).toISOString(), now)).toBe("Today");
+  });
+
+  it("counts days inside the week either side", () => {
+    expect(relativeDayLabel(new Date(2026, 8, 25, 9, 0).toISOString(), now)).toBe("In 3 days");
+    expect(relativeDayLabel(new Date(2026, 8, 21, 9, 0).toISOString(), now)).toBe("Yesterday");
+    expect(relativeDayLabel(new Date(2026, 8, 19, 9, 0).toISOString(), now)).toBe("3 days ago");
+  });
+
+  it("falls back to the full date beyond a week", () => {
+    // Far enough away that "in 40 days" helps nobody plan.
+    expect(relativeDayLabel(new Date(2026, 9, 31, 9, 0).toISOString(), now)).toContain("Oct");
+  });
+
+  it("returns an empty string for an unusable value rather than 'Invalid Date'", () => {
+    expect(relativeDayLabel("", now)).toBe("");
+    expect(relativeDayLabel("not a date", now)).toBe("");
+  });
+});
+
+describe("formatDuration", () => {
+  it("keeps minutes under an hour", () => {
+    expect(formatDuration(45)).toBe("45 min");
+  });
+
+  it("turns a multi-service visit into hours and minutes", () => {
+    // A three-service visit is routinely this long, and "135 minutes" is a number the
+    // customer has to do arithmetic on to find out whether it eats their afternoon.
+    expect(formatDuration(135)).toBe("2 hr 15 min");
+    expect(formatDuration(60)).toBe("1 hr");
+    expect(formatDuration(120)).toBe("2 hr");
+  });
+
+  it("does not produce a negative or NaN duration", () => {
+    expect(formatDuration(-10)).toBe("0 min");
+    expect(formatDuration(Number.NaN)).toBe("0 min");
   });
 });

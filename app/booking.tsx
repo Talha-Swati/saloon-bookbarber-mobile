@@ -1,9 +1,23 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { BackHandler, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BackHandler, StyleSheet, Text, View } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { Screen } from "@/components/Screen";
-import { colors, radius, spacing } from "@/constants/theme";
-import { ActivityIndicator, Alert } from "react-native";
+import {
+  AppBar,
+  Button,
+  Card,
+  Chip,
+  EmptyState,
+  Field,
+  Icon,
+  Notice,
+  Skeleton,
+  StepProgress,
+  enterUp,
+  haptics,
+} from "@/components/ui";
+import { colors, motion, radius, spacing, type } from "@/constants/theme";
 import { AvailabilitySlot, Salon, Service } from "@/types";
 import {
   bookingErrorMessage,
@@ -11,31 +25,41 @@ import {
   fetchAvailability,
   fetchSalon,
 } from "@/services/salonService";
-import {
-  DummyPaymentError,
-  PAYMENT_TEST_MODE,
-  runDummyEasypaisaPayment,
-} from "@/services/dummyPayment";
+import { DummyPaymentError, PAYMENT_TEST_MODE, runDummyEasypaisaPayment } from "@/services/dummyPayment";
 import { useAuth } from "@/providers/AuthProvider";
-import { formatClockTime, formatPkr } from "@/utils/format";
-import {
-  BOOKING_WINDOW_DAYS,
-  bookingDateLabel,
-  bookingWindowDates,
-} from "@/utils/bookingWindow";
+import { formatClockTime, formatDuration, formatPkr } from "@/utils/format";
+import { BOOKING_WINDOW_DAYS, bookingDateLabel, bookingWindowDates } from "@/utils/bookingWindow";
 
-// Services, date, slot, review, pay. Payment is the last step rather than an
-// afterthought on the confirmation screen, because it is mandatory: the visit is not
-// booked until it clears.
-const TOTAL_STEPS = 5;
-const PAYMENT_STEP = 5;
+/**
+ * Three steps, not five.
+ *
+ * What went, and why:
+ *
+ *   - "Selected services" was step 1. It listed back the services the customer had
+ *     chosen on the previous screen, seconds earlier, behind a Continue button — a whole
+ *     screen asking them to confirm something they had just done. It is now a summary
+ *     strip at the top of step 1, where it is visible for the whole flow instead of
+ *     being shown once and then hidden.
+ *   - "Choose a date" and "choose a slot" were two steps. They are one decision: nobody
+ *     picks a day without caring what times are free on it, and splitting them meant
+ *     discovering a day was fully booked only after committing to it — then a tap back,
+ *     a tap on the next day, and a tap forward. Dates and times now sit on one screen,
+ *     and changing the date reloads the times underneath it.
+ *
+ * Each screen removed from a checkout is measurable: this is the difference between a
+ * booking that takes five taps and one that takes eleven.
+ */
+const STEPS = ["Pick a time", "Confirm", "Pay"] as const;
+const TIME_STEP = 1;
+const REVIEW_STEP = 2;
+const PAYMENT_STEP = 3;
 
 export default function BookingFlow() {
   const p = useLocalSearchParams<{ salonId: string; serviceIds: string }>();
   const { session: activeSession, role } = useAuth();
   const session = role === "customer" ? activeSession : null;
   const [salon, setSalon] = useState<Salon | null>(null);
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<number>(TIME_STEP);
   // Phase 3C booking window: today + the next six calendar days, in the device's local
   // calendar. Computed per mount (not at module scope) so it cannot go stale.
   const dates = useMemo(() => bookingWindowDates(), []);
@@ -46,6 +70,7 @@ export default function BookingFlow() {
   const [slotLoading, setSlotLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [slotError, setSlotError] = useState("");
 
   // Payment step state. Nothing here is persisted or transmitted — see
   // services/dummyPayment.ts.
@@ -53,7 +78,8 @@ export default function BookingFlow() {
   const [pin, setPin] = useState("");
   const [payError, setPayError] = useState("");
 
-  const serviceIds = (p.serviceIds ?? "").split(",").filter(Boolean);
+  const serviceIds = useMemo(() => (p.serviceIds ?? "").split(",").filter(Boolean), [p.serviceIds]);
+
   useEffect(() => {
     if (!p.salonId) return;
     fetchSalon(p.salonId)
@@ -61,57 +87,64 @@ export default function BookingFlow() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [p.salonId]);
+
   useEffect(() => {
-    const subscription = BackHandler.addEventListener(
-      "hardwareBackPress",
-      () => {
-        if (step > 1) {
-          setStep((value) => value - 1);
-          return true;
-        }
-        return false;
-      },
-    );
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (step > TIME_STEP) {
+        setStep((value) => value - 1);
+        return true;
+      }
+      return false;
+    });
     return () => subscription.remove();
   }, [step]);
+
   // Order reflects the order services were selected in on the salon screen, which
   // is also the order they'll be performed in for the visit.
-  const services: Service[] = serviceIds
-    .map((id) => salon?.services.find((x) => x.id === id))
-    .filter((x): x is Service => Boolean(x));
+  const services: Service[] = useMemo(
+    () =>
+      serviceIds
+        .map((id) => salon?.services.find((service) => service.id === id))
+        .filter((service): service is Service => Boolean(service)),
+    [salon, serviceIds],
+  );
   const firstService = services[0];
-  const totalPrice = services.reduce((sum, x) => sum + x.price, 0);
-  const totalDuration = services.reduce((sum, x) => sum + x.duration, 0);
+  const totalPrice = services.reduce((sum, service) => sum + service.price, 0);
+  const totalDuration = services.reduce((sum, service) => sum + service.duration, 0);
+
   // Client-side estimate only, for the review step — the server (create_customer_
   // booking_group) computes and saves the real per-service times on confirm.
   const estimatedSchedule = (startIso: string) => {
     let cursor = new Date(startIso);
-    return services.map((svc) => {
+    return services.map((service) => {
       const start = new Date(cursor);
-      cursor = new Date(cursor.getTime() + svc.duration * 60_000);
-      return { service: svc, start, end: new Date(cursor) };
+      cursor = new Date(cursor.getTime() + service.duration * 60_000);
+      return { service, start, end: new Date(cursor) };
     });
   };
-  const loadSlots = async () => {
+
+  const loadSlots = useCallback(async () => {
     if (!salon || !firstService) return;
     setSlotLoading(true);
-    setError("");
+    setSlotError("");
     setTime("");
     try {
       setSlots(await fetchAvailability(salon.id, firstService.id, date));
     } catch (e) {
       setSlots([]);
-      setError(bookingErrorMessage(e));
+      setSlotError(bookingErrorMessage(e));
     } finally {
       setSlotLoading(false);
     }
-  };
-  const next = async () => {
-    if (step === 2) {
-      setStep(3);
-      await loadSlots();
-    } else if (step < TOTAL_STEPS) setStep(step + 1);
-  };
+  }, [date, firstService, salon]);
+
+  // Times load for whatever date is selected, including the one the screen opens on.
+  // Under the old two-step flow this ran once, on the transition between the date screen
+  // and the slot screen; here the date is a filter over the times below it, so the times
+  // follow the date.
+  useEffect(() => {
+    loadSlots();
+  }, [loadSlots]);
 
   /**
    * Pay, then book — in that order, and only in that order.
@@ -128,10 +161,7 @@ export default function BookingFlow() {
    */
   const payAndConfirm = async () => {
     if (!session) {
-      Alert.alert(
-        "Sign in required",
-        "Please sign in from Profile before confirming this booking.",
-      );
+      setStep(REVIEW_STEP);
       return;
     }
     // Guards a double submit: the button is disabled while `busy` is true, but a fast
@@ -146,6 +176,7 @@ export default function BookingFlow() {
       payment = await runDummyEasypaisaPayment({ mobile, pin, amount: totalPrice });
     } catch (e) {
       setBusy(false);
+      haptics.error();
       setPayError(
         e instanceof DummyPaymentError
           ? e.message
@@ -167,443 +198,361 @@ export default function BookingFlow() {
         },
       });
     } catch (e) {
+      haptics.error();
       setError(
         `${bookingErrorMessage(e)}${
-          PAYMENT_TEST_MODE
-            ? " No money was taken — this is a test-mode payment."
-            : ""
+          PAYMENT_TEST_MODE ? " No money was taken — this is a test-mode payment." : ""
         }`,
       );
       setPin("");
-      setTime("");
-      setStep(3);
+      setStep(TIME_STEP);
       await loadSlots();
     } finally {
       setBusy(false);
     }
   };
-  if (loading)
-    return (
-      <Screen>
-        <ActivityIndicator color={colors.primary} />
-      </Screen>
-    );
-  if ((error && !salon) || !salon || services.length === 0)
-    return (
-      <Screen>
-        <Text style={s.title}>
-          {error || "This salon or service is unavailable."}
-        </Text>
-        <Pressable onPress={() => router.back()} style={s.primary}>
-          <Text style={s.primaryText}>Go back</Text>
-        </Pressable>
-      </Screen>
-    );
 
-  const continueDisabled = busy || slotLoading || (step === 3 && !time);
+  if (loading) {
+    return (
+      <Screen>
+        <AppBar title="Book appointment" />
+        <View style={s.loading}>
+          <Skeleton height={6} />
+          <Skeleton height={72} style={{ borderRadius: radius.md }} />
+          <Skeleton height={62} style={{ borderRadius: radius.md }} />
+          <Skeleton height={140} style={{ borderRadius: radius.md }} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if ((error && !salon) || !salon || services.length === 0) {
+    return (
+      <Screen>
+        <AppBar title="Book appointment" />
+        <EmptyState
+          actionLabel="Go back"
+          body={error || "This salon or service is no longer available."}
+          onAction={() => router.back()}
+          title="Cannot book this visit"
+          tone="error"
+        />
+      </Screen>
+    );
+  }
+
+  const canContinue =
+    step === TIME_STEP ? Boolean(time) && !slotLoading : step === REVIEW_STEP ? Boolean(session) : true;
+
+  const primary =
+    step === TIME_STEP
+      ? { label: "Review booking", onPress: () => setStep(REVIEW_STEP) }
+      : step === REVIEW_STEP
+        ? session
+          ? { label: "Continue to payment", onPress: () => setStep(PAYMENT_STEP) }
+          : { label: "Sign in to continue", onPress: () => router.push("/auth/sign-in") }
+        : { label: `Pay ${formatPkr(totalPrice)}`, onPress: payAndConfirm };
 
   return (
-    <Screen>
-      <View style={s.nav}>
-        <Pressable
-          accessibilityLabel="Go back"
-          hitSlop={4}
-          style={s.backButton}
-          onPress={() => (step > 1 ? setStep(step - 1) : router.back())}
-        >
-          <Text style={s.back}>‹</Text>
-        </Pressable>
-        <Text style={s.navTitle}>Book appointment</Text>
-        <View style={{ width: 36 }} />
-      </View>
-      <View style={s.steps}>
-        {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((x) => (
-          <View key={x} style={[s.dot, x <= step && s.dotActive]}>
-            <Text style={[s.dotText, x <= step && s.dotTextActive]}>{x}</Text>
-          </View>
-        ))}
-      </View>
-      <Text style={s.kicker}>
-        STEP {step} OF {TOTAL_STEPS}
-      </Text>
-      {step === 1 && (
+    <Screen
+      footer={
         <>
-          <Text style={s.title}>Selected services</Text>
-          <View style={{ gap: spacing.sm }}>
-            {services.map((svc) => (
-              <View style={s.card} key={svc.id}>
-                <Text style={s.service}>{svc.name}</Text>
-                <View style={s.line}>
-                  <Text style={s.muted}>{svc.duration} minutes</Text>
-                  <Text style={s.price}>{formatPkr(svc.price)}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-          <View style={s.money}>
-            <Text style={s.salon}>Total</Text>
-            <Text style={s.price}>
-              {totalDuration} min · {formatPkr(totalPrice)}
-            </Text>
-          </View>
-          <Text style={s.note}>
-            No barber selection is required — the salon assigns a free barber to
-            your visit automatically.
-          </Text>
+          <Button
+            disabled={step === REVIEW_STEP && !session ? false : !canContinue}
+            label={primary.label}
+            loading={busy}
+            onPress={primary.onPress}
+          />
+          {step === PAYMENT_STEP && busy ? (
+            <Text style={s.processing}>Authorising with Easypaisa…</Text>
+          ) : null}
         </>
-      )}
-      {step === 2 && (
-        <>
-          <Text style={s.title}>Choose a date</Text>
-          <Text style={s.subtitle}>
-            Bookings open for the next {BOOKING_WINDOW_DAYS} days.
+      }
+    >
+      <AppBar
+        onBack={() => (step > TIME_STEP ? setStep(step - 1) : router.back())}
+        title="Book appointment"
+      />
+
+      <StepProgress label={STEPS[step - 1]} step={step} total={STEPS.length} />
+
+      {/*
+        The basket, visible on every step rather than being a step of its own. This is
+        what someone glances at to check they are booking the right thing, and glancing
+        should not cost two taps back and two forward.
+      */}
+      <Card style={s.basket} tone="raised">
+        <View style={s.basketTop}>
+          <Text numberOfLines={1} style={s.basketSalon}>
+            {salon.name}
           </Text>
-          <View style={s.grid}>
-            {dates.map((x) => (
-              <Choice
-                key={x.value}
-                label={x.label}
-                selected={date === x.value}
-                onPress={() => setDate(x.value)}
-              />
-            ))}
+          <Text style={s.basketTotal}>{formatPkr(totalPrice)}</Text>
+        </View>
+        <Text numberOfLines={2} style={s.basketServices}>
+          {services.map((service) => service.name).join(" · ")}
+        </Text>
+        <Text style={s.basketMeta}>
+          {services.length} service{services.length === 1 ? "" : "s"} ·{" "}
+          {formatDuration(totalDuration)}
+        </Text>
+      </Card>
+
+      {error ? <View style={s.notice}><Notice body={error} title="Booking not completed" tone="danger" /></View> : null}
+
+      {step === TIME_STEP ? (
+        <Animated.View entering={FadeIn.duration(motion.fast)}>
+          <Text style={s.heading}>When would you like to come in?</Text>
+          <Text style={s.sub}>You can book up to {BOOKING_WINDOW_DAYS} days ahead.</Text>
+
+          <View style={s.dates}>
+            {/*
+              Two lines per chip: the weekday a person thinks in ("Thu"), and the date
+              they check against a calendar ("25 Sep"). The shared booking-window helper
+              returns one combined string because the web app renders it in a dropdown;
+              splitting it here is presentation, and leaves that mirrored rule untouched.
+            */}
+            {dates.map((day, index) => {
+              const [year, month, dayNumber] = day.value.split("-").map(Number);
+              const asDate = new Date(year, month - 1, dayNumber);
+              return (
+                <Chip
+                  key={day.value}
+                  label={
+                    index === 0
+                      ? "Today"
+                      : index === 1
+                        ? "Tomorrow"
+                        : asDate.toLocaleDateString(undefined, { weekday: "short" })
+                  }
+                  onPress={() => setDate(day.value)}
+                  selected={date === day.value}
+                  sublabel={asDate.toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                />
+              );
+            })}
           </View>
-        </>
-      )}
-      {step === 3 && (
-        <>
-          <Text style={s.title}>Choose an available slot</Text>
-          <Text style={s.subtitle}>{bookingDateLabel(date)}</Text>
+
+          <Text style={s.heading}>Available times</Text>
+          <Text style={s.sub}>{bookingDateLabel(date)}</Text>
+
           {slotLoading ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : error ? (
-            <>
-              <Text style={s.note}>{error}</Text>
-              <Pressable onPress={loadSlots}>
-                <Text style={s.price}>Try again</Text>
-              </Pressable>
-            </>
+            <View style={s.slotSkeleton}>
+              {Array.from({ length: 8 }, (_, i) => (
+                <Skeleton height={44} key={i} style={{ borderRadius: radius.pill }} width={96} />
+              ))}
+            </View>
+          ) : slotError ? (
+            <EmptyState
+              actionLabel="Try again"
+              body={slotError}
+              onAction={loadSlots}
+              title="Times did not load"
+              tone="error"
+            />
           ) : slots.length ? (
-            <View style={s.grid}>
-              {slots.map((x) => (
-                <Choice
-                  key={x.startTime}
-                  label={formatClockTime(x.startTime)}
-                  selected={time === x.startTime}
-                  onPress={() => setTime(x.startTime)}
+            <View style={s.slots}>
+              {slots.map((slot) => (
+                <Chip
+                  key={slot.startTime}
+                  label={formatClockTime(slot.startTime)}
+                  onPress={() => setTime(slot.startTime)}
+                  selected={time === slot.startTime}
                 />
               ))}
             </View>
           ) : (
-            <Text style={s.note}>
-              No slots are available. The salon may be closed on this date.
-            </Text>
+            <EmptyState
+              body="The salon is closed or fully booked on this day. Try another date above."
+              icon="clock"
+              title="No times on this day"
+            />
           )}
-        </>
-      )}
-      {step === 4 && (
-        <>
-          <Text style={s.title}>Booking summary</Text>
-          <Text style={s.salon}>{salon.name}</Text>
-          <Text style={s.rowText}>
-            {bookingDateLabel(date)} · starting {formatClockTime(time)}
-          </Text>
-          <Text style={s.muted}>
-            {services.length} service{services.length === 1 ? "" : "s"} ·{" "}
-            {totalDuration} min
-          </Text>
-          <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
-            {estimatedSchedule(time).map(({ service: svc, start, end }) => (
-              <View style={s.card} key={svc.id}>
-                <Text style={s.service}>{svc.name}</Text>
-                <Text style={s.muted}>
-                  {formatClockTime(start.toISOString())} –{" "}
-                  {formatClockTime(end.toISOString())} (est.)
-                </Text>
-                <View style={s.line}>
-                  <Text style={s.muted}>{svc.duration} minutes</Text>
-                  <Text style={s.price}>{formatPkr(svc.price)}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-          <View style={s.money}>
-            <Text style={s.salon}>Total</Text>
-            <Text style={s.price}>{formatPkr(totalPrice)}</Text>
-          </View>
-          <Text style={s.note}>
-            Estimated times shown above — final times are calculated and saved by
-            the salon backend once payment clears. Payment is required to confirm
-            this booking.
-          </Text>
-        </>
-      )}
-      {step === PAYMENT_STEP && (
-        <>
-          <Text style={s.title}>Payment</Text>
+        </Animated.View>
+      ) : null}
 
-          {/* Impossible to miss, and above the amount. A payment screen that looks
-              real and takes nothing must say so before anything else. */}
-          {PAYMENT_TEST_MODE && (
-            <View style={s.testBanner}>
-              <Text style={s.testBannerTitle}>TEST MODE — NO REAL PAYMENT</Text>
-              <Text style={s.testBannerBody}>
-                Easypaisa is not connected yet. Nothing is charged, no money moves
-                and no card or wallet is contacted. Any 5-digit PIN works.
+      {step === REVIEW_STEP ? (
+        <Animated.View entering={FadeIn.duration(motion.fast)}>
+          <Text style={s.heading}>Check the details</Text>
+
+          <Card style={s.when} tone="raised">
+            <Icon color={colors.deepGreen} name="calendar" size={20} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.whenTitle}>
+                {bookingDateLabel(date)}, {formatClockTime(time)}
+              </Text>
+              <Text style={s.whenMeta}>
+                Finishes about {formatClockTime(
+                  new Date(new Date(time).getTime() + totalDuration * 60_000).toISOString(),
+                )}
               </Text>
             </View>
-          )}
+          </Card>
+
+          <Text style={s.listHeading}>Your visit, in order</Text>
+          {estimatedSchedule(time).map(({ service, start, end }, index) => (
+            <Animated.View entering={enterUp(index)} key={service.id}>
+              <Card style={s.line}>
+                <View style={s.stepDot}>
+                  <Text style={s.stepDotText}>{index + 1}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.lineName}>{service.name}</Text>
+                  <Text style={s.lineMeta}>
+                    {formatClockTime(start.toISOString())} – {formatClockTime(end.toISOString())} ·{" "}
+                    {formatDuration(service.duration)}
+                  </Text>
+                </View>
+                <Text style={s.linePrice}>{formatPkr(service.price)}</Text>
+              </Card>
+            </Animated.View>
+          ))}
+
+          <View style={s.totalRow}>
+            <Text style={s.totalLabel}>Total</Text>
+            <Text style={s.totalValue}>{formatPkr(totalPrice)}</Text>
+          </View>
+
+          <Text style={s.note}>
+            Times are an estimate. The salon assigns a free barber automatically and saves
+            the exact times when your payment clears.
+          </Text>
+
+          {!session ? (
+            <View style={s.notice}>
+              <Notice
+                body="A booking has to belong to an account so you can see it, change it and cancel it."
+                title="Sign in to confirm this booking"
+                tone="info"
+              />
+            </View>
+          ) : null}
+        </Animated.View>
+      ) : null}
+
+      {step === PAYMENT_STEP ? (
+        <Animated.View entering={FadeIn.duration(motion.fast)}>
+          {/* Impossible to miss, and above the amount. A payment screen that looks
+              real and takes nothing must say so before anything else. */}
+          {PAYMENT_TEST_MODE ? (
+            <View style={s.notice}>
+              <Notice
+                body="Easypaisa is not connected yet. Nothing is charged, no money moves and no wallet is contacted. Any 5-digit PIN works."
+                title="Test mode — no real payment"
+                tone="warning"
+              />
+            </View>
+          ) : null}
 
           <View style={s.amountCard}>
-            <Text style={s.amountLabel}>Amount due</Text>
+            <Text style={s.amountLabel}>AMOUNT DUE</Text>
             <Text style={s.amountValue}>{formatPkr(totalPrice)}</Text>
-            <Text style={s.muted}>
-              {services.length} service{services.length === 1 ? "" : "s"} at{" "}
-              {salon.name}
+            <Text style={s.amountMeta}>
+              {services.length} service{services.length === 1 ? "" : "s"} at {salon.name}
             </Text>
           </View>
 
-          <Text style={s.section}>Pay with</Text>
-          <View style={s.methodCard}>
+          <Text style={s.listHeading}>Pay with</Text>
+          <Card selected style={s.method}>
             <View style={s.methodMark}>
               <Text style={s.methodMarkText}>ep</Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={s.methodName}>Easypaisa</Text>
-              <Text style={s.muted}>Mobile account</Text>
+              <Text style={s.lineMeta}>Mobile account</Text>
             </View>
-            <View style={s.radioOn}>
-              <View style={s.radioDot} />
-            </View>
+            <Icon color={colors.deepGreen} name="checkCircle" size={22} />
+          </Card>
+
+          <View style={s.form}>
+            <Field
+              autoComplete="tel"
+              error={payError && /mobile/i.test(payError) ? payError : undefined}
+              icon="phone"
+              keyboardType="phone-pad"
+              label="Easypaisa mobile number"
+              maxLength={15}
+              onChangeText={(value) => {
+                setMobile(value);
+                if (payError) setPayError("");
+              }}
+              placeholder="0300 1234567"
+              value={mobile}
+            />
+            <Field
+              error={payError && !/mobile/i.test(payError) ? payError : undefined}
+              hint="Five digits."
+              icon="lock"
+              keyboardType="number-pad"
+              label="Easypaisa PIN"
+              maxLength={5}
+              onChangeText={(value) => {
+                setPin(value.replace(/\D/g, ""));
+                if (payError) setPayError("");
+              }}
+              password
+              placeholder="•••••"
+              value={pin}
+            />
           </View>
 
-          <Text style={s.fieldLabel}>Easypaisa mobile number</Text>
-          <TextInput
-            autoComplete="tel"
-            keyboardType="phone-pad"
-            maxLength={15}
-            onChangeText={(value) => {
-              setMobile(value);
-              if (payError) setPayError("");
-            }}
-            placeholder="03XX XXXXXXX"
-            placeholderTextColor={colors.muted}
-            style={s.input}
-            value={mobile}
-          />
-
-          <Text style={s.fieldLabel}>Easypaisa PIN</Text>
-          <TextInput
-            keyboardType="number-pad"
-            maxLength={5}
-            onChangeText={(value) => {
-              setPin(value.replace(/\D/g, ""));
-              if (payError) setPayError("");
-            }}
-            placeholder="5-digit PIN"
-            placeholderTextColor={colors.muted}
-            secureTextEntry
-            style={s.input}
-            value={pin}
-          />
-
-          {payError ? <Text style={s.error}>{payError}</Text> : null}
-
           <Text style={s.note}>
-            Your slot is confirmed the moment payment clears. If someone books the
-            same slot first, you will be asked to pick another time and nothing is
-            charged.
+            Your slot is confirmed the moment payment clears. If someone takes the same
+            slot first you will be asked to pick another time, and nothing is charged.
           </Text>
-        </>
-      )}
-      <Pressable
-        disabled={step === PAYMENT_STEP ? busy : continueDisabled}
-        onPress={step === PAYMENT_STEP ? payAndConfirm : next}
-        style={[
-          s.primary,
-          (step === PAYMENT_STEP ? busy : continueDisabled) && s.disabled,
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator color={colors.onPrimary} />
-        ) : (
-          <Text style={s.primaryText}>
-            {step === PAYMENT_STEP
-              ? `Pay ${formatPkr(totalPrice)}`
-              : step === 4
-                ? "Continue to payment"
-                : "Continue"}
-          </Text>
-        )}
-      </Pressable>
-      {step === PAYMENT_STEP && busy && (
-        <Text style={s.processing}>Authorising with Easypaisa…</Text>
-      )}
+        </Animated.View>
+      ) : null}
     </Screen>
   );
 }
-function Choice({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable onPress={onPress} style={[s.choice, selected && s.choiceOn]}>
-      <Text style={[s.choiceText, selected && s.choiceTextOn]}>{label}</Text>
-    </Pressable>
-  );
-}const s = StyleSheet.create({
-  backButton: {
-    width: 48,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: -10,
-  },
-  nav: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  back: { fontSize: 36, color: colors.text, lineHeight: 40 },
-  navTitle: { fontWeight: "700", fontSize: 16, color: colors.text },
-  steps: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: spacing.sm,
-    marginVertical: spacing.lg,
-  },
-  dot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.border,
-  },
-  dotActive: { backgroundColor: colors.primary },
-  dotText: { color: colors.muted, fontWeight: "700" },
-  dotTextActive: { color: colors.onPrimary },
-  kicker: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 27,
-    fontWeight: "800",
-    marginTop: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  subtitle: { color: colors.muted, marginTop: -12, marginBottom: spacing.md },
-  card: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-  },
-  salon: { color: colors.text, fontSize: 17, fontWeight: "800" },
-  service: { color: colors.muted, marginTop: 5 },
-  rowText: { color: colors.text, marginTop: spacing.md },
-  line: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    justifyContent: "space-between",
-    marginTop: spacing.lg,
-  },
-  muted: { color: colors.muted },
-  price: { color: colors.text, fontWeight: "800" },
-  note: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: spacing.md,
-  },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  choice: {
-    minHeight: 46,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  choiceOn: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
-  choiceText: { color: colors.text, fontWeight: "600" },
-  choiceTextOn: { color: colors.deepGreen, fontWeight: "800" },
-  section: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: colors.text,
-    marginTop: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  money: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  testBanner: {
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-    backgroundColor: "#FFFBEB",
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  testBannerTitle: {
-    color: "#92400E",
-    fontWeight: "800",
-    fontSize: 12,
-    letterSpacing: 0.5,
-  },
-  testBannerBody: {
-    color: "#92400E",
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
-  },
-  amountCard: {
+
+const s = StyleSheet.create({
+  loading: { gap: spacing.md, marginTop: spacing.md },
+  basket: { gap: 5, marginBottom: spacing.lg },
+  basketTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  basketSalon: { ...type.cardTitle, color: colors.text, flex: 1 },
+  basketTotal: { ...type.cardTitle, color: colors.deepGreen },
+  basketServices: { ...type.caption, color: colors.secondaryText },
+  basketMeta: { ...type.label, fontWeight: "400", color: colors.muted },
+  notice: { marginBottom: spacing.lg },
+  heading: { ...type.section, color: colors.text, marginTop: spacing.md },
+  sub: { ...type.caption, color: colors.muted, marginTop: 4, marginBottom: spacing.md },
+  dates: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  slots: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  slotSkeleton: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  when: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.md },
+  whenTitle: { ...type.cardTitle, color: colors.text },
+  whenMeta: { ...type.label, fontWeight: "400", color: colors.muted, marginTop: 3 },
+  listHeading: { ...type.label, color: colors.muted, marginTop: spacing.lg, marginBottom: spacing.sm },
+  line: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.sm },
+  stepDot: {
+    width: 26,
+    height: 26,
+    borderRadius: radius.pill,
     backgroundColor: colors.primarySoft,
-    borderRadius: radius.md,
-    padding: spacing.lg,
-  },
-  amountLabel: {
-    color: colors.deepGreen,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-  },
-  amountValue: {
-    color: colors.text,
-    fontSize: 34,
-    fontWeight: "800",
-    marginVertical: 6,
-  },
-  methodCard: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    borderRadius: radius.md,
-    padding: spacing.md,
+    justifyContent: "center",
   },
+  stepDotText: { ...type.label, fontSize: 11, color: colors.deepGreen },
+  lineName: { ...type.bodyStrong, color: colors.text },
+  lineMeta: { ...type.label, fontWeight: "400", color: colors.muted, marginTop: 3 },
+  linePrice: { ...type.bodyStrong, color: colors.text },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    marginTop: spacing.sm,
+  },
+  totalLabel: { ...type.cardTitle, color: colors.text },
+  totalValue: { ...type.title, fontSize: 22, lineHeight: 28, color: colors.text },
+  note: { ...type.label, fontWeight: "400", color: colors.muted, lineHeight: 18, marginTop: spacing.sm },
+  amountCard: { backgroundColor: colors.primarySoft, borderRadius: radius.md, padding: spacing.lg },
+  amountLabel: { ...type.eyebrow, color: colors.deepGreen },
+  amountValue: { fontSize: 34, lineHeight: 42, fontWeight: "800", color: colors.text, marginVertical: 4 },
+  amountMeta: { ...type.caption, color: colors.secondaryText },
+  method: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   methodMark: {
     width: 44,
     height: 44,
@@ -613,59 +562,7 @@ function Choice({
     justifyContent: "center",
   },
   methodMarkText: { color: "#FFFFFF", fontWeight: "800", fontSize: 18 },
-  methodName: { color: colors.text, fontWeight: "800", fontSize: 16 },
-  radioOn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-  },
-  fieldLabel: {
-    color: colors.text,
-    fontWeight: "700",
-    fontSize: 13,
-    marginTop: spacing.lg,
-    marginBottom: 8,
-  },
-  input: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    color: colors.text,
-    fontSize: 16,
-  },
-  error: {
-    color: colors.danger,
-    marginTop: spacing.md,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  processing: {
-    color: colors.muted,
-    fontSize: 12,
-    textAlign: "center",
-    marginTop: spacing.sm,
-  },
-  primary: {
-    minHeight: 52,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: spacing.xl,
-  },
-  primaryText: { color: colors.onPrimary, fontWeight: "800", fontSize: 16 },
-  disabled: { opacity: 0.4 },
+  methodName: { ...type.bodyStrong, color: colors.text },
+  form: { marginTop: spacing.lg },
+  processing: { ...type.label, fontWeight: "400", color: colors.muted, textAlign: "center", marginTop: spacing.sm },
 });

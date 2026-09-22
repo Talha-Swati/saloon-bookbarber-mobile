@@ -1,8 +1,9 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Screen } from "@/components/Screen";
-import { colors, radius, spacing } from "@/constants/theme";
+import { colors, radius, spacing, type } from "@/constants/theme";
+import { AppBar, Button, EmptyState, Notice, PressableScale, haptics } from "@/components/ui";
 import {
   RegistrationRole,
   SIGNUP_CODE_TTL_SECONDS,
@@ -53,8 +54,10 @@ export default function VerifyEmail() {
       setError("");
       try {
         await verifySignupCode({ email, code: value, fullName, role });
-        router.replace(isProfessional ? "/professional" : "/(tabs)/profile");
+        haptics.success();
+        router.replace(isProfessional ? "/professional" : "/(tabs)");
       } catch (e) {
+        haptics.error();
         setError(signupCodeErrorMessage(e));
         setCode("");
       } finally {
@@ -92,20 +95,21 @@ export default function VerifyEmail() {
   if (!email) {
     return (
       <Screen>
-        <Text style={s.title}>Something went missing</Text>
-        <Text style={s.note}>We don&apos;t know which email to verify. Please sign up again.</Text>
-        <Pressable onPress={() => router.replace("/auth/sign-up")} style={s.primary}>
-          <Text style={s.primaryText}>Back to sign up</Text>
-        </Pressable>
+        <AppBar title="Verify your email" />
+        <EmptyState
+          actionLabel="Back to sign up"
+          body="We do not know which email address to verify. Start the sign up again."
+          onAction={() => router.replace("/auth/sign-up")}
+          title="Something went missing"
+          tone="error"
+        />
       </Screen>
     );
   }
 
   return (
     <Screen>
-      <Pressable onPress={() => router.back()}>
-        <Text style={s.back}>‹ Back</Text>
-      </Pressable>
+      <AppBar onBack={() => router.back()} title="Verify your email" />
 
       <Text style={s.title}>Enter your code</Text>
       <Text style={s.note}>
@@ -136,43 +140,50 @@ export default function VerifyEmail() {
         value={code}
       />
 
-      {error ? <Text style={s.error}>{error}</Text> : null}
+      {error ? (
+        <View style={s.error}>
+          <Notice body={error} title="That code did not work" tone="danger" />
+        </View>
+      ) : null}
 
       <Text style={[s.timer, expired && s.timerExpired]}>
         {expired ? "Code expired" : `Expires in ${mmss(secondsLeft)}`}
       </Text>
 
-      <Pressable
-        disabled={busy || code.length !== CODE_LENGTH}
+      <Button
+        disabled={code.length !== CODE_LENGTH}
+        label="Verify and continue"
+        loading={busy}
         onPress={() => submit(code)}
-        style={[s.primary, (busy || code.length !== CODE_LENGTH) && s.disabled]}
-      >
-        {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={s.primaryText}>Verify and continue</Text>}
-      </Pressable>
+      />
 
-      <Pressable disabled={resending} onPress={resend} style={s.link}>
-        <Text style={s.linkText}>{resending ? "Sending…" : "Resend code"}</Text>
-      </Pressable>
+      <Button
+        label="Send a new code"
+        loading={resending}
+        onPress={resend}
+        style={s.resend}
+        variant="secondary"
+      />
 
-      <Pressable
+      <PressableScale
         onPress={() =>
           router.replace({
             pathname: "/auth/sign-in",
             params: isProfessional ? { entry: "professional" } : {},
           })
         }
+        scaleTo={0.97}
         style={s.link}
       >
         <Text style={s.linkMuted}>Already verified? Sign in</Text>
-      </Pressable>
+      </PressableScale>
     </Screen>
   );
 }
 
 const s = StyleSheet.create({
-  back: { color: colors.deepGreen, fontWeight: "700", marginBottom: spacing.xl },
-  title: { color: colors.text, fontSize: 30, fontWeight: "800" },
-  note: { color: colors.muted, marginTop: 8, marginBottom: spacing.lg, lineHeight: 21 },
+  title: { ...type.display, color: colors.text, marginTop: spacing.md },
+  note: { ...type.body, color: colors.muted, marginTop: 8, marginBottom: spacing.lg },
   email: { color: colors.text, fontWeight: "700" },
   boxRow: { flexDirection: "row", gap: 8, marginBottom: spacing.md },
   box: {
@@ -190,19 +201,10 @@ const s = StyleSheet.create({
   boxError: { borderColor: colors.danger },
   boxText: { color: colors.text, fontSize: 24, fontWeight: "800" },
   hiddenInput: { position: "absolute", opacity: 0, height: 1, width: 1 },
-  error: { color: colors.danger, marginBottom: spacing.sm, lineHeight: 20 },
-  timer: { color: colors.muted, marginBottom: spacing.lg, fontWeight: "600" },
+  error: { marginBottom: spacing.md },
+  timer: { ...type.caption, fontWeight: "700", color: colors.muted, marginBottom: spacing.lg },
   timerExpired: { color: colors.danger },
-  primary: {
-    minHeight: 52,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryText: { color: colors.onPrimary, fontWeight: "800" },
-  disabled: { opacity: 0.5 },
-  link: { alignItems: "center", padding: spacing.md },
-  linkText: { color: colors.deepGreen, fontWeight: "700" },
-  linkMuted: { color: colors.muted, fontWeight: "600" },
+  resend: { marginTop: spacing.sm },
+  link: { alignItems: "center", padding: spacing.md, marginTop: spacing.sm },
+  linkMuted: { ...type.caption, fontWeight: "700", color: colors.muted },
 });

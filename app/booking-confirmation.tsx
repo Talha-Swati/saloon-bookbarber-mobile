@@ -1,11 +1,14 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
-import { BackHandler, Pressable, StyleSheet, Text, View } from "react-native";
+import { BackHandler, StyleSheet, Text, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { Screen } from "@/components/Screen";
-import { colors, radius, spacing } from "@/constants/theme";
+import { Button, Card, Notice, SuccessMark, enterUp } from "@/components/ui";
+import { colors, spacing, type } from "@/constants/theme";
 import type { CreatedBookingItem } from "@/services/salonService";
 import { PAYMENT_TEST_MODE } from "@/services/dummyPayment";
 import { formatClockTime, formatPkr } from "@/utils/format";
+
 export default function Confirmation() {
   const p = useLocalSearchParams<{
     salon: string;
@@ -30,177 +33,124 @@ export default function Confirmation() {
   // the real gateway is not attached.
   const paid = Boolean(p.paymentReference);
   const awaitingServerPayment = items.some((x) => x.status === "pending_payment");
+
   useEffect(() => {
-    const subscription = BackHandler.addEventListener(
-      "hardwareBackPress",
-      () => {
-        router.replace("/(tabs)");
-        return true;
-      },
-    );
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      router.replace("/(tabs)");
+      return true;
+    });
     return () => subscription.remove();
   }, []);
+
   return (
-    <Screen>
+    <Screen
+      footer={
+        <View style={s.actions}>
+          <Button label="View my booking" onPress={() => router.replace("/(tabs)/bookings")} />
+          <Button label="Back to home" onPress={() => router.replace("/(tabs)")} variant="ghost" />
+        </View>
+      }
+    >
       <View style={s.success}>
-        <View style={s.check}>
-          <Text style={s.checkText}>✓</Text>
-        </View>
-        <Text style={s.title}>
-          {awaitingServerPayment ? "Booking reserved" : "Booking confirmed"}
-        </Text>
-        <Text style={s.subtitle}>
+        <SuccessMark />
+        <Animated.Text entering={enterUp(1)} style={s.title}>
+          {awaitingServerPayment ? "Booking reserved" : "You are booked in"}
+        </Animated.Text>
+        <Animated.Text entering={enterUp(2)} style={s.subtitle}>
           {awaitingServerPayment
-            ? "Your slot is held while the salon confirms payment."
-            : "Your appointment is reserved and a barber has been assigned."}
-        </Text>
-        <Text style={s.id}>{p.salon}</Text>
+            ? `${p.salon} is holding your slot while payment is confirmed.`
+            : `${p.salon} has your appointment, and a barber has been assigned.`}
+        </Animated.Text>
       </View>
-      <View style={s.card}>
-        {items.map((item) => (
-          <Row
-            key={item.id}
-            label={item.serviceName}
-            value={`${formatClockTime(item.startTime)} · ${formatPkr(item.price)}`}
+
+      <Animated.View entering={enterUp(3)}>
+        <Card padded={false}>
+          {items.map((item, index) => (
+            <Row
+              key={item.id}
+              label={item.serviceName}
+              last={index === items.length - 1 && !paid}
+              value={`${formatClockTime(item.startTime)} · ${formatPkr(item.price)}`}
+            />
+          ))}
+          <Row emphasis label="Total" last={!paid} value={formatPkr(Number(p.total || 0))} />
+          {paid ? (
+            <Row
+              label={`Paid with Easypaisa${p.paymentAccount ? ` · ${p.paymentAccount}` : ""}`}
+              last
+              value={p.paymentReference}
+            />
+          ) : null}
+        </Card>
+      </Animated.View>
+
+      {paid && PAYMENT_TEST_MODE ? (
+        <View style={s.notice}>
+          <Notice
+            body="Easypaisa is not connected yet, so nothing was charged and the reference above is not a real transaction. Settle the amount at the salon."
+            title="Test mode — no real payment"
+            tone="warning"
           />
-        ))}
-        <Row label="Total" value={formatPkr(Number(p.total || 0))} last={!paid} />
-        {paid && (
-          <Row
-            label={`Paid with Easypaisa${p.paymentAccount ? ` · ${p.paymentAccount}` : ""}`}
-            value={p.paymentReference}
-            last
-          />
-        )}
-      </View>
-      {paid && PAYMENT_TEST_MODE && (
-        <View style={s.testBanner}>
-          <Text style={s.testBannerTitle}>TEST MODE — NO REAL PAYMENT</Text>
-          <Text style={s.testBannerBody}>
-            Easypaisa is not connected yet, so nothing was charged and the
-            reference above is not a real transaction. Settle the amount at the
-            salon.
-          </Text>
         </View>
-      )}
-      {awaitingServerPayment && (
-        <Text style={s.note}>
-          The salon still has this booking marked as awaiting payment. Show the
-          reference above when you arrive.
-        </Text>
-      )}
-      <Pressable
-        onPress={() => router.replace("/(tabs)/bookings")}
-        style={s.primary}
-      >
-        <Text style={s.primaryText}>View My Bookings</Text>
-      </Pressable>
-      <Pressable onPress={() => router.replace("/(tabs)")} style={s.secondary}>
-        <Text style={s.secondaryText}>Back to Home</Text>
-      </Pressable>
+      ) : null}
+
+      {awaitingServerPayment ? (
+        <View style={s.notice}>
+          <Notice
+            body="Show the reference above when you arrive."
+            title="The salon still has this booking as awaiting payment"
+            tone="info"
+          />
+        </View>
+      ) : null}
     </Screen>
   );
 }
+
 function Row({
   label,
   value,
   last,
+  emphasis,
 }: {
   label: string;
   value?: string;
   last?: boolean;
+  emphasis?: boolean;
 }) {
   return (
-    <View style={[s.row, last && { borderBottomWidth: 0 }]}>
-      <Text style={s.label}>{label}</Text>
-      <Text style={s.value}>{value}</Text>
+    <View style={[s.row, last && s.lastRow]}>
+      <Text style={[s.label, emphasis && s.labelStrong]}>{label}</Text>
+      <Text style={[s.value, emphasis && s.valueStrong]}>{value}</Text>
     </View>
   );
 }
+
 const s = StyleSheet.create({
-  testBanner: {
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-    backgroundColor: "#FFFBEB",
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginTop: spacing.lg,
-  },
-  testBannerTitle: {
-    color: "#92400E",
-    fontWeight: "800",
-    fontSize: 12,
-    letterSpacing: 0.5,
-  },
-  testBannerBody: {
-    color: "#92400E",
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
-  },
-  note: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: spacing.lg,
+  success: { alignItems: "center", paddingTop: spacing.xl, paddingBottom: spacing.lg },
+  title: { ...type.display, color: colors.text, marginTop: spacing.md, textAlign: "center" },
+  subtitle: {
+    ...type.body,
+    color: colors.secondaryText,
+    marginTop: spacing.sm,
     textAlign: "center",
-  },
-  success: { alignItems: "center", paddingVertical: spacing.xl },
-  check: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.md,
-  },
-  checkText: { fontSize: 36, color: colors.deepGreen, fontWeight: "800" },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: colors.text,
-    textAlign: "center",
-  },
-  subtitle: { color: colors.muted, marginTop: 6 },
-  id: {
-    color: colors.deepGreen,
-    fontWeight: "800",
-    fontSize: 11,
-    letterSpacing: 1,
-    marginTop: spacing.lg,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
+    maxWidth: 320,
   },
   row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: colors.divider,
   },
-  label: { color: colors.muted, fontSize: 12, marginBottom: 5 },
-  value: { color: colors.text, fontWeight: "700", flexShrink: 1 },
-  primary: {
-    minHeight: 52,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: spacing.xl,
-  },
-  primaryText: { color: colors.onPrimary, fontWeight: "800" },
-  secondary: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: spacing.sm,
-  },
-  secondaryText: { color: colors.deepGreen, fontWeight: "800" },
+  lastRow: { borderBottomWidth: 0 },
+  label: { ...type.caption, color: colors.secondaryText, flexShrink: 1 },
+  labelStrong: { ...type.bodyStrong, color: colors.text },
+  value: { ...type.caption, fontWeight: "700", color: colors.text, textAlign: "right" },
+  valueStrong: { ...type.bodyStrong, color: colors.text },
+  notice: { marginTop: spacing.lg },
+  actions: { gap: spacing.sm },
 });

@@ -8,7 +8,8 @@ import {
 } from "@/types";
 import { requireSupabaseConfig, supabase } from "@/services/supabase";
 import { apiBaseUrl, apiUrl } from "@/services/api";
-import { formatClockTime, formatDateLabel, formatDbTime } from "@/utils/format";
+import { formatClockTime, formatDateLabel } from "@/utils/format";
+import { scheduleFrom } from "@/utils/openingHours";
 type Row = Record<string, any>;
 const number = (value: unknown) => Number(value ?? 0);
 
@@ -74,16 +75,6 @@ const serviceFrom = (row: Row): Service => ({
   description: row.description ?? "",
   category: row.category_name ?? row.category?.name ?? row.service_categories?.name,
 });
-const hoursText = (hours: Row[]) =>
-  hours.length
-    ? hours
-        .map((h) =>
-          h.is_closed
-            ? `${h.day_of_week}: Closed`
-            : `${h.day_of_week}: ${formatDbTime(h.open_time)}–${formatDbTime(h.close_time)}`,
-        )
-        .join(" · ")
-    : "Hours unavailable";
 const salonFrom = (
   row: Row,
   services: Service[] = [],
@@ -113,7 +104,7 @@ const salonFrom = (
   // There is no `salons.description`. The web client builds this line from the address,
   // so the same salon described itself on the website and said nothing in the app.
   description: row.address ? `${row.address}, ${row.city ?? ""}`.trim() : (row.city ?? ""),
-  hours: hoursText(hours),
+  openingHours: scheduleFrom(hours),
   services,
   reviewPreview: [],
 });
@@ -358,6 +349,7 @@ const bookingFrom = (row: Row, barberNames?: Map<string, string>): Booking => {
     canCancel: status === "confirmed" || status === "pending_payment",
     salonName: salon?.name ?? "Salon",
     serviceName: row.service_name_snapshot ?? service?.name ?? "Service",
+    startTime: String(row.start_time ?? ""),
     date: formatDateLabel(row.start_time),
     time: formatClockTime(row.start_time),
     duration: number(

@@ -73,3 +73,47 @@ export function formatReviewCount(count: number): string {
   if (n <= 0) return "No reviews yet";
   return `${n.toLocaleString()} review${n === 1 ? "" : "s"}`;
 }
+
+/**
+ * How far away an appointment is, in the words a person would use.
+ *
+ * "Sat, 26 Sep 2026" is precise and answers nothing: to know whether that is tomorrow or
+ * next week you have to look up today's date. This is the line that goes in front of the
+ * date, not instead of it — both are shown, because "Tomorrow" alone is no use to
+ * someone scanning a list of four appointments.
+ *
+ * Compared on local calendar days, not on elapsed hours: an appointment at 9am tomorrow
+ * is "Tomorrow" whether it is now 8am or 11pm tonight.
+ */
+export function relativeDayLabel(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.valueOf())) return "";
+  const startOfDay = (value: Date) =>
+    new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.round((startOfDay(date) - startOfDay(now)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days === -1) return "Yesterday";
+  if (days > 1 && days < 7) return `In ${days} days`;
+  if (days < -1 && days > -7) return `${Math.abs(days)} days ago`;
+  return formatDateLabel(iso);
+}
+
+/**
+ * Minutes as a person would say them: "45 min", "1 hr", "1 hr 30 min".
+ *
+ * A three-service visit is routinely 90 or 135 minutes, and "135 minutes" is a number
+ * the customer has to do arithmetic on to find out whether it eats their afternoon.
+ */
+export function formatDuration(minutes: number): string {
+  const parsed = Number(minutes);
+  // Math.max(0, NaN) is NaN, so the clamp alone is not a guard. `duration` reaches this
+  // from `Number(row.duration_minutes_snapshot ?? service?.duration_minutes)`, which is
+  // NaN for any booking whose snapshot is missing or non-numeric — and "NaN hr" on a
+  // booking card is worse than saying nothing.
+  const total = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+  if (total < 60) return `${total} min`;
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest ? `${hours} hr ${rest} min` : `${hours} hr`;
+}

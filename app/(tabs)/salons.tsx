@@ -1,93 +1,145 @@
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { SalonCard } from "@/components/SalonCard";
 import { Screen } from "@/components/Screen";
-import { colors, radius, spacing } from "@/constants/theme";
-import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable } from "react-native";
-import { useFocusEffect } from "expo-router";
+import {
+  Chip,
+  EmptyState,
+  SearchBar,
+  SkeletonList,
+  enterUp,
+  listTransition,
+} from "@/components/ui";
+import { colors, spacing, type } from "@/constants/theme";
 import { fetchSalons, salonMatchesSearch } from "@/services/salonService";
 import { Salon } from "@/types";
+
+const ALL = "__all__";
+
+/**
+ * The full directory.
+ *
+ * Home and this screen used to be the same screen twice — identical search box over an
+ * identical list — which left a person no reason to tap either tab. Home now leads with
+ * what is personal (the next appointment) and shows four salons; this is the complete
+ * list, and it filters by city, which is the question someone browsing actually has.
+ */
 export default function Salons() {
   const [items, setItems] = useState<Salon[]>([]);
   const [query, setQuery] = useState("");
+  const [city, setCity] = useState(ALL);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
   const load = useCallback(() => {
-    setLoading(true);
     setError("");
-    fetchSalons()
+    return fetchSalons()
       .then(setItems)
-      .catch(() => setError("Unable to load salons."))
+      .catch(() => setError("We could not load salons. Check your connection and try again."))
       .finally(() => setLoading(false));
   }, []);
-  useFocusEffect(load);
-  const visible = items.filter((x) => salonMatchesSearch(x, query));
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
+
+  const cities = useMemo(
+    () => Array.from(new Set(items.map((salon) => salon.city).filter(Boolean))).sort(),
+    [items],
+  );
+
+  const visible = useMemo(
+    () =>
+      items.filter(
+        (salon) => salonMatchesSearch(salon, query) && (city === ALL || salon.city === city),
+      ),
+    [city, items, query],
+  );
+
+  const filtering = query.trim().length > 0 || city !== ALL;
+
   return (
-    <Screen>
-      <Text style={s.title}>Find a salon</Text>
-      <Text style={s.sub}>
-        Choose a salon, then select a service and available slot.
-      </Text>
-      <View style={s.search}>
-        <Text>🔍</Text>
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          style={{ flex: 1, minHeight: 50 }}
-          placeholder="Salon, city, area, or service"
-          placeholderTextColor={colors.muted}
-        />
-      </View>
+    <Screen onRefresh={load}>
+      <Animated.View entering={enterUp()}>
+        <Text accessibilityRole="header" style={s.title}>
+          Salons
+        </Text>
+        <Text style={s.sub}>Pick a salon, choose your services, then a time that is free.</Text>
+      </Animated.View>
+
+      <Animated.View entering={enterUp(1)} style={s.search}>
+        <SearchBar onChange={setQuery} placeholder="Salon, area or service" value={query} />
+      </Animated.View>
+
+      {cities.length > 1 ? (
+        <Animated.View entering={enterUp(2)}>
+          <ScrollView contentContainerStyle={s.chips} horizontal showsHorizontalScrollIndicator={false}>
+            <Chip label="All cities" onPress={() => setCity(ALL)} selected={city === ALL} />
+            {cities.map((name) => (
+              <Chip
+                key={name}
+                label={name}
+                onPress={() => setCity(city === name ? ALL : name)}
+                selected={city === name}
+              />
+            ))}
+          </ScrollView>
+        </Animated.View>
+      ) : null}
+
       {loading ? (
-        <ActivityIndicator color={colors.primary} />
+        <SkeletonList count={5} />
       ) : error ? (
-        <State text={error} retry={load} />
+        <EmptyState
+          actionLabel="Try again"
+          body={error}
+          onAction={load}
+          title="Nothing loaded"
+          tone="error"
+        />
       ) : visible.length ? (
-        visible.map((x) => <SalonCard key={x.id} salon={x} />)
+        <View>
+          <Text style={s.count}>
+            {visible.length} salon{visible.length === 1 ? "" : "s"}
+          </Text>
+          {visible.map((salon, index) => (
+            <Animated.View entering={enterUp(index)} key={salon.id} layout={listTransition}>
+              <SalonCard salon={salon} />
+            </Animated.View>
+          ))}
+        </View>
       ) : (
-        <State
-          text={
-            query.trim()
-              ? "No salons match that search."
-              : "No salons available yet."
+        <EmptyState
+          actionLabel={filtering ? "Clear filters" : undefined}
+          body={
+            filtering
+              ? "Try another city, or search by salon name, area or service."
+              : "No salon has been approved on BookBarber yet. Pull down to check again."
           }
+          icon="salons"
+          onAction={
+            filtering
+              ? () => {
+                  setQuery("");
+                  setCity(ALL);
+                }
+              : undefined
+          }
+          title={filtering ? "No salons match" : "No salons yet"}
         />
       )}
     </Screen>
   );
 }
-function State({ text, retry }: { text: string; retry?: () => void }) {
-  return (
-    <View style={s.state}>
-      <Text style={s.stateText}>{text}</Text>
-      {retry && (
-        <Pressable onPress={retry}>
-          <Text style={s.retry}>Try again</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
+
 const s = StyleSheet.create({
-  title: { color: colors.text, fontSize: 28, fontWeight: "800" },
-  sub: {
-    color: colors.muted,
-    lineHeight: 21,
-    marginTop: 6,
-    marginBottom: spacing.lg,
-  },
-  search: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  state: { alignItems: "center", padding: spacing.xl },
-  stateText: { color: colors.muted, textAlign: "center" },
-  retry: { color: colors.deepGreen, fontWeight: "800", marginTop: spacing.md },
+  title: { ...type.display, color: colors.text },
+  sub: { ...type.body, color: colors.muted, marginTop: 6 },
+  search: { marginTop: spacing.lg },
+  chips: { gap: spacing.sm, paddingTop: spacing.md, paddingRight: spacing.md, paddingBottom: 2 },
+  count: { ...type.label, color: colors.muted, marginTop: spacing.lg, marginBottom: spacing.sm },
 });

@@ -1,8 +1,20 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { Screen } from "@/components/Screen";
-import { colors, radius, spacing } from "@/constants/theme";
+import {
+  AppBar,
+  Card,
+  EmptyState,
+  Icon,
+  IconName,
+  PressableScale,
+  SkeletonList,
+  enterUp,
+  listTransition,
+} from "@/components/ui";
+import { colors, radius, spacing, type } from "@/constants/theme";
 import { useAuth } from "@/providers/AuthProvider";
 import {
   fetchNotifications,
@@ -12,13 +24,20 @@ import {
 import { notifications as demoNotifications } from "@/data/mockData";
 import type { NotificationItem } from "@/types";
 
-const icons: Record<NotificationItem["type"], string> = {
-  confirmed: "✓",
-  reminder: "⏰",
-  rescheduled: "↻",
-  cancelled: "✕",
-  payment: "₨",
-  review: "★",
+/**
+ * Each kind of notification gets its own icon and tint.
+ *
+ * These were single characters — "✓", "⏰", "₨", "★" — in a green circle, so a cancelled
+ * booking and a confirmed one arrived looking identical apart from one glyph. Colour and
+ * shape together let someone find the cancellation in a list of twenty without reading.
+ */
+const LOOK: Record<NotificationItem["type"], { icon: IconName; fg: string; bg: string }> = {
+  confirmed: { icon: "checkCircle", fg: colors.deepGreen, bg: colors.primarySoft },
+  reminder: { icon: "clock", fg: colors.warning, bg: colors.warningSoft },
+  rescheduled: { icon: "refresh", fg: "#1E40AF", bg: colors.infoSoft },
+  cancelled: { icon: "cancelled", fg: colors.danger, bg: colors.dangerSoft },
+  payment: { icon: "wallet", fg: colors.deepGreen, bg: colors.primarySoft },
+  review: { icon: "star", fg: "#B45309", bg: colors.warningSoft },
 };
 
 export default function Notifications() {
@@ -27,131 +46,147 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const load = useCallback(() => {
+    if (!session) {
+      setItems([]);
+      setLoading(false);
+      return Promise.resolve();
+    }
+    if (isDemo) {
+      setItems(demoNotifications);
+      setLoading(false);
+      return Promise.resolve();
+    }
+    setError("");
+    return fetchNotifications()
+      .then(setItems)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, [isDemo, session]);
+
   useFocusEffect(
     useCallback(() => {
-      if (!session) {
-        setItems([]);
-        setLoading(false);
-        return;
-      }
-      if (isDemo) {
-        setItems(demoNotifications);
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      setError("");
-      fetchNotifications()
-        .then(setItems)
-        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-        .finally(() => setLoading(false));
-    }, [session, isDemo]),
+      load();
+    }, [load]),
   );
 
-  const unread = items.filter((x) => !x.read).length;
+  const unread = items.filter((item) => !item.read).length;
 
   const markAllRead = async () => {
-    setItems(items.map((x) => ({ ...x, read: true })));
-    if (!isDemo) {
-      try {
-        await markAllNotificationsRead();
-      } catch {
-        // Best-effort — the list is already optimistically updated.
-      }
+    setItems(items.map((item) => ({ ...item, read: true })));
+    if (isDemo) return;
+    try {
+      await markAllNotificationsRead();
+    } catch {
+      // Best-effort — the list is already optimistically updated.
     }
   };
 
   const markOneRead = async (id: string) => {
-    setItems(items.map((x) => (x.id === id ? { ...x, read: true } : x)));
-    if (!isDemo) {
-      try {
-        await markNotificationRead(id);
-      } catch {
-        // Best-effort — the list is already optimistically updated.
-      }
+    setItems(items.map((item) => (item.id === id ? { ...item, read: true } : item)));
+    if (isDemo) return;
+    try {
+      await markNotificationRead(id);
+    } catch {
+      // Best-effort — the list is already optimistically updated.
     }
   };
 
   return (
-    <Screen>
-      <View style={s.header}>
-        <Pressable accessibilityLabel="Go back" hitSlop={4} style={s.backButton} onPress={() => router.back()}>
-          <Text style={s.back}>‹</Text>
-        </Pressable>
-        <Text style={s.title}>Notifications</Text>
-        <View style={{ width: 36 }} />
-      </View>
-      <View style={s.toolbar}>
-        <Text style={s.muted}>{unread} unread</Text>
-        <Pressable onPress={markAllRead}>
-          <Text style={s.mark}>Mark all read</Text>
-        </Pressable>
-      </View>
+    <Screen onRefresh={session ? load : undefined}>
+      <AppBar
+        right={
+          unread > 0 ? (
+            <PressableScale
+              accessibilityLabel="Mark all as read"
+              hitSlop={8}
+              onPress={markAllRead}
+              scaleTo={0.9}
+              style={s.markAll}
+            >
+              <Icon color={colors.deepGreen} name="check" size={20} />
+            </PressableScale>
+          ) : null
+        }
+        title="Notifications"
+      />
+
+      {unread > 0 ? (
+        <Text style={s.count}>
+          {unread} unread · tap one to mark it read
+        </Text>
+      ) : null}
+
       {authLoading || loading ? (
-        <ActivityIndicator color={colors.primary} />
+        <SkeletonList count={4} lines={2} />
       ) : !session ? (
-        <Text style={s.empty}>Sign in to view your notifications.</Text>
+        <EmptyState
+          actionLabel="Sign in"
+          body="Booking confirmations, reminders and cancellations are sent to your account."
+          icon="person"
+          onAction={() => router.push("/auth/sign-in")}
+          title="Sign in to see your notifications"
+        />
       ) : error ? (
-        <Text style={s.empty}>{error}</Text>
+        <EmptyState
+          actionLabel="Try again"
+          body={error}
+          onAction={load}
+          title="Could not load notifications"
+          tone="error"
+        />
       ) : items.length ? (
-        items.map((item) => (
-          <Pressable
-            key={item.id}
-            onPress={() => markOneRead(item.id)}
-            style={[s.item, !item.read && s.unread]}
-          >
-            <View style={s.icon}>
-              <Text style={s.iconText}>{icons[item.type]}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={s.itemTop}>
-                <Text style={s.itemTitle}>{item.title}</Text>
-                {!item.read && <View style={s.dot} />}
-              </View>
-              <Text style={s.message}>{item.message}</Text>
-              <Text style={s.time}>{item.time}</Text>
-            </View>
-          </Pressable>
-        ))
+        items.map((item, index) => {
+          const look = LOOK[item.type];
+          return (
+            <Animated.View entering={enterUp(index)} key={item.id} layout={listTransition}>
+              <Card
+                accessibilityLabel={`${item.title}. ${item.message}`}
+                onPress={() => markOneRead(item.id)}
+                style={[s.item, !item.read && s.unread]}
+              >
+                <View style={[s.icon, { backgroundColor: look.bg }]}>
+                  <Icon color={look.fg} name={look.icon} size={18} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={s.itemTop}>
+                    <Text style={s.itemTitle}>{item.title}</Text>
+                    {!item.read ? <View style={s.dot} /> : null}
+                  </View>
+                  <Text style={s.message}>{item.message}</Text>
+                  <Text style={s.time}>{item.time}</Text>
+                </View>
+              </Card>
+            </Animated.View>
+          );
+        })
       ) : (
-        <Text style={s.empty}>No notifications yet.</Text>
+        <EmptyState
+          body="Confirmations, reminders and changes to your bookings will appear here."
+          icon="bell"
+          title="Nothing yet"
+        />
       )}
     </Screen>
   );
 }
 
 const s = StyleSheet.create({
-  backButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center", marginLeft: -10 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  back: { fontSize: 36, color: colors.text, lineHeight: 40 },
-  title: { fontSize: 20, fontWeight: "800", color: colors.text },
-  toolbar: { flexDirection: "row", justifyContent: "space-between", marginVertical: spacing.lg },
-  muted: { color: colors.muted },
-  mark: { color: colors.deepGreen, fontWeight: "800" },
-  item: {
-    flexDirection: "row",
-    gap: 12,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    marginBottom: spacing.sm,
-  },
-  unread: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
-  icon: {
+  markAll: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: radius.pill,
     backgroundColor: colors.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
-  iconText: { color: colors.deepGreen, fontSize: 18, fontWeight: "800" },
-  itemTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  itemTitle: { color: colors.text, fontWeight: "800", flexShrink: 1, paddingRight: spacing.sm },
+  count: { ...type.label, fontWeight: "400", color: colors.muted, marginBottom: spacing.md },
+  item: { flexDirection: "row", gap: spacing.md, marginBottom: spacing.sm },
+  unread: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  icon: { width: 40, height: 40, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
+  itemTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  itemTitle: { ...type.bodyStrong, color: colors.text, flexShrink: 1 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
-  message: { color: colors.muted, lineHeight: 19, marginTop: 4 },
-  time: { color: colors.muted, fontSize: 11, marginTop: 7 },
-  empty: { color: colors.muted, textAlign: "center", marginTop: spacing.xl },
+  message: { ...type.caption, color: colors.secondaryText, marginTop: 3 },
+  time: { ...type.label, fontSize: 11, fontWeight: "400", color: colors.muted, marginTop: 7 },
 });

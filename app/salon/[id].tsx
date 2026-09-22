@@ -1,13 +1,26 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { Screen } from "@/components/Screen";
 import { SectionHeader } from "@/components/SectionHeader";
-import { colors, radius, spacing } from "@/constants/theme";
-import { useEffect, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import {
+  AppBar,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  Skeleton,
+  StatusPill,
+  enterUp,
+  haptics,
+  listTransition,
+} from "@/components/ui";
+import { colors, radius, spacing, type } from "@/constants/theme";
 import { fetchSalon } from "@/services/salonService";
 import { Salon } from "@/types";
-import { formatPkr, formatRating, formatReviewCount } from "@/utils/format";
+import { formatDuration, formatPkr, formatRating, formatReviewCount } from "@/utils/format";
+
 export default function SalonDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [salon, setSalon] = useState<Salon | null>(null);
@@ -16,11 +29,14 @@ export default function SalonDetail() {
   // Order reflects selection order, which is also visit order (services are
   // performed back-to-back in this order — see createBookingGroup).
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
   function toggle(serviceId: string) {
+    haptics.select();
     setSelectedIds((prev) =>
       prev.includes(serviceId) ? prev.filter((x) => x !== serviceId) : [...prev, serviceId],
     );
   }
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -29,231 +45,226 @@ export default function SalonDetail() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
-  if (loading)
+
+  const selected = useMemo(
+    () => (salon?.services ?? []).filter((service) => selectedIds.includes(service.id)),
+    [salon, selectedIds],
+  );
+  const total = selected.reduce((sum, service) => sum + service.price, 0);
+  const minutes = selected.reduce((sum, service) => sum + service.duration, 0);
+  const today = new Date().getDay();
+
+  if (loading) {
     return (
       <Screen>
-        <ActivityIndicator color={colors.primary} />
-      </Screen>
-    );
-  if (error || !salon)
-    return (
-      <Screen>
-        <Pressable onPress={() => router.back()}>
-          <Text style={s.backText}>‹</Text>
-        </Pressable>
-        <Text style={s.title}>{error || "Salon not found."}</Text>
-      </Screen>
-    );
-  return (
-    <Screen>
-      <View style={s.cover}>
-        <Pressable onPress={() => router.back()} style={s.back}>
-          <Text style={s.backText}>‹</Text>
-        </Pressable>
-        <Text style={s.mono}>{salon.name[0]}</Text>
-      </View>
-      <View style={s.heading}>
-        <View style={{ flex: 1 }}>
-          <Text style={s.title}>{salon.name}</Text>
-          <Text style={s.location}>
-            {salon.area}, {salon.city}
-          </Text>
+        <AppBar title="Salon" />
+        <View style={s.loading}>
+          <Skeleton height={64} style={{ borderRadius: radius.md }} width={64} />
+          <Skeleton height={26} width="70%" />
+          <Skeleton height={14} width="45%" />
+          <Skeleton height={86} style={{ borderRadius: radius.md }} />
+          <Skeleton height={86} style={{ borderRadius: radius.md }} />
         </View>
-        <Text style={[s.status, salon.isOpen ? s.open : s.closed]}>
-          {salon.isOpen ? "ACTIVE" : "CLOSED"}
-        </Text>
-      </View>
-      {formatRating(salon.rating) ? (
-        <Text style={s.rating}>
-          ★ {formatRating(salon.rating)}{" "}
-          <Text style={s.muted}>({formatReviewCount(salon.reviews)})</Text>
-        </Text>
-      ) : (
-        <Text style={[s.rating, s.muted]}>{formatReviewCount(salon.reviews)}</Text>
-      )}
-      {salon.description ? <Text style={s.description}>{salon.description}</Text> : null}
-      <SectionHeader title="Services" />
-      <Text style={s.hint}>Select one or more services for this visit.</Text>
+      </Screen>
+    );
+  }
+
+  if (error || !salon) {
+    return (
+      <Screen>
+        <AppBar title="Salon" />
+        <EmptyState
+          actionLabel="Go back"
+          body={error || "This salon is no longer listed on BookBarber."}
+          onAction={() => router.back()}
+          title="Salon not available"
+          tone="error"
+        />
+      </Screen>
+    );
+  }
+
+  const rating = formatRating(salon.rating);
+
+  return (
+    <Screen
+      footer={
+        // Outside the scroll view, so it is reachable without scrolling back up a menu
+        // of twenty services. It only exists once something is selected — an empty bar
+        // would be a button that does nothing for the whole first half of the visit.
+        selected.length > 0 ? (
+          <Animated.View entering={enterUp()} style={s.bar}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.barMeta}>
+                {selected.length} service{selected.length === 1 ? "" : "s"} ·{" "}
+                {formatDuration(minutes)}
+              </Text>
+              <Text style={s.barTotal}>{formatPkr(total)}</Text>
+            </View>
+            <Button
+              block={false}
+              label="Choose a time"
+              onPress={() =>
+                router.push({
+                  pathname: "/booking",
+                  params: { salonId: salon.id, serviceIds: selectedIds.join(",") },
+                })
+              }
+            />
+          </Animated.View>
+        ) : null
+      }
+    >
+      <AppBar title={salon.name} />
+
+      <Animated.View entering={enterUp()} style={s.hero}>
+        <View style={s.monogram}>
+          <Text style={s.initial}>{salon.name[0]?.toUpperCase() ?? "?"}</Text>
+        </View>
+        <View style={s.heroText}>
+          <Text style={s.name}>{salon.name}</Text>
+          <View style={s.metaRow}>
+            <Icon color={colors.muted} name="location" size={14} />
+            <Text style={s.meta}>{[salon.area, salon.city].filter(Boolean).join(", ")}</Text>
+          </View>
+          <View style={s.metaRow}>
+            {rating ? (
+              <>
+                <Icon color="#E0A612" name="star" size={14} />
+                <Text style={s.rating}>{rating}</Text>
+                <Text style={s.meta}>· {formatReviewCount(salon.reviews)}</Text>
+              </>
+            ) : (
+              <Text style={s.meta}>{formatReviewCount(salon.reviews)}</Text>
+            )}
+          </View>
+          <StatusPill
+            label={salon.isOpen ? "Taking bookings" : "Not taking bookings"}
+            tone={salon.isOpen ? "live" : "stopped"}
+          />
+        </View>
+      </Animated.View>
+
+      <SectionHeader
+        subtitle="Pick everything you want in this visit — they are done back to back."
+        title="Services"
+      />
       {salon.services.length ? (
-        salon.services.map((service) => {
+        salon.services.map((service, index) => {
           const checked = selectedIds.includes(service.id);
           return (
-            <Pressable
-              key={service.id}
-              onPress={() => toggle(service.id)}
-              style={[s.card, checked && s.cardOn]}
-            >
-              <View style={s.serviceTop}>
-                <View style={s.checkRow}>
+            <Animated.View entering={enterUp(index)} key={service.id} layout={listTransition}>
+              <Card
+                accessibilityLabel={`${service.name}, ${formatPkr(service.price)}`}
+                onPress={() => toggle(service.id)}
+                selected={checked}
+                style={s.service}
+              >
+                <View style={s.serviceTop}>
                   <View style={[s.checkbox, checked && s.checkboxOn]}>
-                    {checked && <Text style={s.checkMark}>✓</Text>}
+                    {checked ? <Icon color={colors.onPrimary} name="check" size={14} /> : null}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={s.serviceName}>{service.name}</Text>
-                    <Text style={s.duration}>
-                      {service.duration} min
+                    <Text style={s.serviceMeta}>
+                      {formatDuration(service.duration)}
                       {service.category ? ` · ${service.category}` : ""}
                     </Text>
                   </View>
+                  <Text style={s.price}>{formatPkr(service.price)}</Text>
                 </View>
-                <Text style={s.price}>{formatPkr(service.price)}</Text>
-              </View>
-              <Text style={s.serviceDescription}>{service.description}</Text>
-            </Pressable>
+                {service.description ? (
+                  <Text style={s.serviceDescription}>{service.description}</Text>
+                ) : null}
+              </Card>
+            </Animated.View>
           );
         })
       ) : (
-        <Text style={s.muted}>No active services are available.</Text>
+        <EmptyState
+          body="This salon has not published a price list yet."
+          icon="scissors"
+          title="No services listed"
+        />
       )}
+
       <SectionHeader title="Opening hours" />
-      <View style={s.hours}>
-        <Text style={s.serviceName}>Hours</Text>
-        <Text style={[s.muted, { flex: 1, textAlign: "right" }]}>
-          {salon.hours}
-        </Text>
-      </View>
-      {selectedIds.length > 0 && (
-        <View style={s.stickyBar}>
-          <View>
-            <Text style={s.stickyCount}>
-              {selectedIds.length} service{selectedIds.length === 1 ? "" : "s"}
-            </Text>
-            <Text style={s.stickyTotal}>
-              {formatPkr(
-                salon.services
-                  .filter((x) => selectedIds.includes(x.id))
-                  .reduce((sum, x) => sum + x.price, 0),
-              )}
-            </Text>
-          </View>
-          <Pressable
-            onPress={() =>
-              router.push({
-                pathname: "/booking",
-                params: { salonId: salon.id, serviceIds: selectedIds.join(",") },
-              })
-            }
-            style={s.continueButton}
-          >
-            <Text style={s.bookText}>Continue</Text>
-          </Pressable>
-        </View>
+      {salon.openingHours.length ? (
+        <Card padded={false}>
+          {salon.openingHours.map((day, index) => (
+            <View
+              key={day.dayOfWeek}
+              style={[s.hourRow, index === salon.openingHours.length - 1 && s.lastRow]}
+            >
+              <Text style={[s.day, day.dayOfWeek === today && s.dayToday]}>
+                {day.day}
+                {day.dayOfWeek === today ? " · today" : ""}
+              </Text>
+              <Text style={[s.hourText, day.closed && s.closed]}>{day.text}</Text>
+            </View>
+          ))}
+        </Card>
+      ) : (
+        <Text style={s.meta}>This salon has not published its opening hours.</Text>
       )}
     </Screen>
   );
 }
+
 const s = StyleSheet.create({
-  cover: {
+  loading: { gap: spacing.md, marginTop: spacing.md },
+  hero: { flexDirection: "row", gap: spacing.md, marginTop: spacing.sm },
+  monogram: {
+    width: 68,
+    height: 68,
+    borderRadius: radius.md,
     backgroundColor: colors.deepGreen,
-    height: 190,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.lg,
-  },
-  mono: { fontSize: 68, color: colors.onPrimary, fontWeight: "800" },
-  back: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,.95)",
     alignItems: "center",
     justifyContent: "center",
   },
-  backText: { fontSize: 34, color: colors.text, lineHeight: 38 },
-  heading: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
-  title: { fontSize: 27, fontWeight: "800", color: colors.text },
-  location: { color: colors.muted, marginTop: 5 },
-  status: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  open: { color: colors.deepGreen, backgroundColor: colors.primarySoft },
-  closed: { color: colors.danger, backgroundColor: colors.dangerSoft },
-  rating: { color: colors.warning, fontWeight: "700", marginTop: spacing.sm },
-  muted: { color: colors.muted, fontWeight: "400" },
-  description: {
-    color: colors.muted,
-    lineHeight: 21,
-    marginVertical: spacing.lg,
-  },
-  hint: { color: colors.muted, fontSize: 12, marginBottom: spacing.sm },
-  card: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  cardOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  serviceTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  checkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1 },
+  initial: { color: colors.onDark, fontSize: 30, fontWeight: "800" },
+  heroText: { flex: 1, gap: 5 },
+  name: { ...type.title, color: colors.text },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  meta: { ...type.caption, color: colors.muted, flexShrink: 1 },
+  rating: { ...type.caption, fontWeight: "800", color: colors.text },
+  service: { marginBottom: spacing.sm },
+  serviceTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 7,
     borderWidth: 1.5,
     borderColor: colors.border,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkMark: { color: colors.onPrimary, fontWeight: "800", fontSize: 13 },
-  serviceName: { color: colors.text, fontWeight: "700", fontSize: 15 },
-  duration: { color: colors.muted, fontSize: 12, marginTop: 4 },
-  price: { color: colors.deepGreen, fontWeight: "800" },
+  serviceName: { ...type.bodyStrong, color: colors.text },
+  serviceMeta: { ...type.label, fontWeight: "400", color: colors.muted, marginTop: 3 },
+  price: { ...type.bodyStrong, color: colors.deepGreen },
   serviceDescription: {
-    color: colors.muted,
-    lineHeight: 19,
+    ...type.caption,
+    color: colors.secondaryText,
     marginTop: spacing.sm,
+    marginLeft: 40,
   },
-  bookText: { color: colors.onPrimary, fontWeight: "800" },
-  stickyBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginTop: spacing.md,
-  },
-  stickyCount: { color: colors.muted, fontSize: 12 },
-  stickyTotal: { color: colors.text, fontWeight: "800", fontSize: 17, marginTop: 2 },
-  continueButton: {
-    minHeight: 48,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  review: {
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  hours: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
+  hourRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
   },
+  lastRow: { borderBottomWidth: 0 },
+  day: { ...type.caption, color: colors.secondaryText },
+  dayToday: { color: colors.deepGreen, fontWeight: "800" },
+  hourText: { ...type.caption, fontWeight: "700", color: colors.text },
+  closed: { color: colors.muted, fontWeight: "400" },
+  bar: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  barMeta: { ...type.label, fontWeight: "400", color: colors.muted },
+  barTotal: { ...type.title, fontSize: 20, lineHeight: 26, color: colors.text, marginTop: 2 },
 });

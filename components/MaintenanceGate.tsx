@@ -1,7 +1,8 @@
 import { PropsWithChildren, useCallback, useEffect, useState } from "react";
-import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, radius, spacing } from "@/constants/theme";
+import { colors, radius, spacing, type } from "@/constants/theme";
+import { Button, Icon } from "@/components/ui";
 import { fetchMaintenanceState } from "@/services/platformService";
 
 /**
@@ -55,19 +56,19 @@ export function MaintenanceGate({ children }: PropsWithChildren) {
   return (
     <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
       <View style={s.card}>
-        <Text style={s.icon}>🛠</Text>
-        <Text style={s.title}>We&rsquo;ll be right back</Text>
+        <View style={s.mark}>
+          <Icon color={colors.warning} name="warning" size={28} />
+        </View>
+        <Text style={s.title}>BookBarber is being updated</Text>
         <Text style={s.message}>{state.message}</Text>
-        <Pressable
-          accessibilityRole="button"
-          disabled={checking}
+        <Button
+          label="Try again"
+          loading={checking}
           onPress={() => void retry()}
-          style={({ pressed }) => [s.button, pressed && { opacity: 0.85 }]}
-        >
-          <Text style={s.buttonText}>{checking ? "Checking…" : "Try again"}</Text>
-        </Pressable>
+          style={s.button}
+        />
         <Text style={s.footnote}>
-          Existing appointments are unaffected. Your salon still has them.
+          Appointments you have already booked are unaffected. Your salon still has them.
         </Text>
       </View>
     </SafeAreaView>
@@ -91,32 +92,26 @@ const s = StyleSheet.create({
     alignItems: "center",
     width: "100%",
   },
-  icon: { fontSize: 40 },
-  title: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "700",
-    marginTop: spacing.md,
-    textAlign: "center",
+  mark: {
+    width: 62,
+    height: 62,
+    borderRadius: radius.pill,
+    backgroundColor: colors.warningSoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  title: { ...type.title, color: colors.text, marginTop: spacing.md, textAlign: "center" },
   message: {
+    ...type.body,
     color: colors.secondaryText,
-    fontSize: 14,
-    lineHeight: 21,
     marginTop: spacing.sm,
     textAlign: "center",
   },
-  button: {
-    marginTop: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: radius.pill,
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-  },
-  buttonText: { color: colors.onPrimary, fontWeight: "700" },
+  button: { alignSelf: "stretch", marginTop: spacing.lg },
   footnote: {
+    ...type.label,
+    fontWeight: "400",
     color: colors.muted,
-    fontSize: 12,
     marginTop: spacing.lg,
     textAlign: "center",
   },

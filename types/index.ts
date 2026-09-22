@@ -48,14 +48,45 @@ export type Salon = {
   startingPrice: number;
   isOpen: boolean;
   description: string;
-  hours: string;
+  /**
+   * One row per day the salon has hours on file, Monday first.
+   *
+   * This was a single pre-joined string, and it was unreadable: `salon_hours.day_of_week`
+   * is a Postgres `dow` integer (0 = Sunday) and the mapper interpolated it raw, so the
+   * app told customers the salon opened on "0", "1" and "2". It also joined all seven
+   * days with a middle dot into one paragraph, which no one reads to find out whether a
+   * place is open on Sunday. Structured rows let the screen name the days and mark today.
+   */
+  openingHours: DaySchedule[];
   services: Service[];
   reviewPreview: Review[];
 };
+export type DaySchedule = {
+  /** 0 = Sunday, matching Postgres `extract(dow ...)` and `salon_hours.day_of_week`. */
+  dayOfWeek: number;
+  /** "Monday". */
+  day: string;
+  /** "10:00 AM – 9:00 PM", or "Closed". */
+  text: string;
+  closed: boolean;
+};
+
 export type Booking = {
   id: string;
   salonName: string;
   serviceName: string;
+  /**
+   * The raw `bookings.start_time` (timestamptz), alongside the two formatted strings
+   * below rather than instead of them.
+   *
+   * `date` and `time` are already-rendered text, which is all a card needs but is useless
+   * for anything that has to compare one booking to another or to now — sorting the
+   * upcoming list soonest-first, deciding which appointment is the *next* one, or saying
+   * "Tomorrow" instead of a date. Every one of those was previously impossible on the
+   * client, and "your next appointment" on the home screen was quietly picking whichever
+   * upcoming booking the query happened to return first, which was the furthest away.
+   */
+  startTime: string;
   date: string;
   time: string;
   duration: number;
