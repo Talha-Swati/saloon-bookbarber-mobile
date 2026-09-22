@@ -1,29 +1,42 @@
 # App Store / Play Store Readiness Audit
 
-Audited 2026-09-11 against `app.json` (no `eas.json` exists in this repo). This is a
-checklist/report only — nothing here creates developer accounts or submits anything.
+Audited 2026-09-11 against `app.json`. **Re-checked 2026-09-22:** three of the four
+blockers below were cleared on 2026-09-18 by "Set up EAS Build so the app can ship
+outside Expo Go" — the per-item sections still explain each one, with a resolution note
+where the answer has changed. This is a checklist/report only; nothing here creates
+developer accounts or submits anything.
 
 ## Summary
 
-**Not ready for either store yet.** The two blockers are the same for both platforms:
-no bundle identifier / package name is set, and there is no `eas.json`, so `eas build`
-cannot run at all today. Icons/splash exist and are reasonable; the privacy policy URL
-required by both stores could not be found anywhere in the repo.
+**One blocker left: the privacy policy.** Both stores require a hosted privacy policy URL
+before a listing can go live, and there is still no privacy policy anywhere in this repo.
+Identifiers, the build config and the version scheme are all in place now, so `eas build`
+can run.
 
 | Area | Play Store | App Store | Status |
 |---|---|---|---|
-| Package name / Bundle ID | Missing | Missing | ❌ Blocker |
+| Package name / Bundle ID | `com.bookbarber.app` | `com.bookbarber.app` | ✅ Set 2026-09-18 |
 | App icon | Present, correct format | Present, correct format | ✅ |
 | Adaptive/monochrome icon (Android only) | Present, smaller than recommended | n/a | ⚠️ Works, not ideal |
 | Splash screen | Present | Present | ✅ |
-| Version / build number scheme | No `versionCode` | No `buildNumber` | ❌ Blocker |
+| Version / build number scheme | EAS-managed | EAS-managed | ✅ `appVersionSource: remote` |
 | Permissions declared vs. used | None used, none declared | None used, none declared | ✅ Consistent |
-| Privacy policy URL | Not found | Not found | ❌ Missing (both require it) |
-| EAS build config | No `eas.json` | No `eas.json` | ❌ Blocker |
+| Privacy policy URL | Not found | Not found | ❌ Blocker (both require it) |
+| EAS build config | `eas.json` present | `eas.json` present | ✅ Added 2026-09-18 |
+
+**Also set on 2026-09-18:** `owner: talha-riazs-team` and
+`extra.eas.projectId: 8462f21a-54d1-48af-b926-c96c3b4e9f1a`, both of which an EAS build
+needs. Note that `expo.slug` is still `sanwaro`, which is the EAS project's name and not
+the store-facing one — `expo.name` ("BookBarber") is what appears on a listing, so this
+is cosmetic, but it is the name you will see in the Expo dashboard.
 
 ## 1. Bundle identifier / package name
 
-**Missing on both platforms.** `app.json`'s `ios` block has only `supportsTablet: true`
+> **Resolved 2026-09-18.** `ios.bundleIdentifier` and `android.package` are both
+> `com.bookbarber.app`, and `owner` / `extra.eas.projectId` are set. The reasoning below
+> is kept because the "effectively permanent" warning still applies to any future change.
+
+**Missing on both platforms (as audited 2026-09-11).** `app.json`'s `ios` block has only `supportsTablet: true`
 — no `bundleIdentifier`. The `android` block has `adaptiveIcon` and
 `predictiveBackGestureEnabled` — no `package`. Neither `owner` nor
 `extra.eas.projectId` is set either (both needed once an EAS project exists).
@@ -72,6 +85,11 @@ Checked actual pixel dimensions and PNG color type of every referenced asset:
 
 ## 3. Version / build number scheme
 
+> **Resolved 2026-09-18.** `eas.json` sets `cli.appVersionSource: "remote"` and
+> `autoIncrement: true` on the production profile, so EAS holds the build number and
+> raises it on every production build. That is why `app.json` still carries no
+> `ios.buildNumber` or `android.versionCode` — with remote versioning it should not.
+
 `app.json` has a single top-level `"version": "1.0.0"` — this is the user-facing
 marketing version shown in both stores, present and fine as a starting point.
 
@@ -118,7 +136,12 @@ can be started.
 
 ## 6. EAS build configuration
 
-**No `eas.json` exists in this repo.** Without it, `eas build` cannot run at all — it
+> **Resolved 2026-09-18.** `eas.json` exists with `development` (dev client, internal,
+> APK), `preview` (internal, APK) and `production` (app-bundle, auto-incrementing)
+> profiles, plus an empty `submit.production` block. `cli.version` requires `>= 16.0.0`.
+> The draft below is what was proposed here; what shipped is close to it.
+
+**No `eas.json` exists in this repo (as audited 2026-09-11).** Without it, `eas build` cannot run at all — it
 needs at minimum a `build` block defining a profile (commonly `development`,
 `preview`, `production`) with platform-specific settings (e.g.
 `android.buildType`, `ios.simulator`, resource class). Creating one is normally done
@@ -142,12 +165,15 @@ documentation, not a change):
 
 ## What's needed before either store submission can actually start
 
-In order:
-1. Talha decides and sets real `ios.bundleIdentifier` / `android.package` values in
-   `app.json` (needs to match his Apple Developer / Google Play Console accounts).
-2. Create `eas.json` (via `eas init`/`eas build:configure` under an authenticated Expo
-   account) and decide the version/build-number scheme (`appVersionSource: "remote"` is
-   the simplest if using EAS for every build).
-3. Host a privacy policy and add its URL to both App Store Connect and Play Console
-   during listing setup (not an app.json field — a store-listing field).
-4. Everything else audited above (icons, permissions) is already in acceptable shape.
+As re-checked on 2026-09-22, in order:
+
+1. **Host a privacy policy** and add its URL to both App Store Connect and Play Console
+   during listing setup. Not an `app.json` field — a store-listing field. This is the
+   only remaining hard blocker, and it needs a real hosted page, not a placeholder.
+2. **Fill in the store listings themselves**, which this audit never covered because they
+   live in the consoles rather than the repo: description, screenshots at the required
+   sizes, category, content rating questionnaire, and Play's Data safety form.
+3. **Run a production build and install it on a real device.** `eas build` can run now,
+   but nothing in this repo proves a store-profile build has been produced and opened.
+
+Done: identifiers, EAS config, version scheme, icons, splash, permissions consistency.
