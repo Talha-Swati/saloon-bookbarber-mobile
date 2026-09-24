@@ -1,4 +1,5 @@
 import { requireSupabaseConfig, supabase } from "@/services/supabase";
+import { subscribeToRows } from "@/services/realtime";
 
 import { formatClockTime } from "@/utils/format";
 type Row = Record<string, any>;
@@ -233,22 +234,14 @@ export async function fetchAssignedBookings(mode: ProfessionalDataMode) {
 // rows regardless, the filter just avoids waking the client for other professionals'
 // bookings.
 export function subscribeToAssignedBookings(professionalId: string, onChange: () => void) {
-  const channel = supabase
-    .channel(`professional-bookings-${professionalId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "bookings",
-        filter: `professional_id=eq.${professionalId}`,
-      },
-      onChange,
-    )
-    .subscribe();
-  return () => {
-    supabase.removeChannel(channel);
-  };
+  // Same fix as subscribeToMyBookings, and the same latent crash: a fixed topic plus an
+  // asynchronous removeChannel means a fast remount is handed a channel that has already
+  // been subscribed, and .on() throws. See services/realtime.ts.
+  return subscribeToRows(
+    `professional-bookings-${professionalId}`,
+    { table: "bookings", filter: `professional_id=eq.${professionalId}` },
+    onChange,
+  );
 }
 
 export async function fetchAssignedBooking(id: string, mode: ProfessionalDataMode) {

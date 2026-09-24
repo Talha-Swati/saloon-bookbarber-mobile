@@ -7,6 +7,7 @@ import {
   Service,
 } from "@/types";
 import { requireSupabaseConfig, supabase } from "@/services/supabase";
+import { subscribeToRows } from "@/services/realtime";
 import { apiBaseUrl, apiUrl } from "@/services/api";
 import { formatClockTime, formatDateLabel } from "@/utils/format";
 import { scheduleFrom } from "@/utils/openingHours";
@@ -486,22 +487,17 @@ export async function fetchBooking(id: string): Promise<Booking | null> {
  * which migration 026 does. Before that the channel subscribes happily and stays silent.
  */
 export function subscribeToMyBookings(customerId: string, onChange: () => void) {
-  const channel = supabase
-    .channel(`customer-bookings-${customerId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "bookings",
-        filter: `customer_id=eq.${customerId}`,
-      },
-      onChange,
-    )
-    .subscribe();
-  return () => {
-    supabase.removeChannel(channel);
-  };
+  // Through subscribeToRows rather than supabase.channel() directly. The topic used to
+  // be a fixed string, and supabase.channel() hands back an EXISTING channel when one
+  // with that topic is still registered - so remounting this screen before the previous
+  // channel finished unsubscribing threw "cannot add `postgres_changes` callbacks ...
+  // after `subscribe()`" and killed the screen. It happened reliably right after a
+  // booking was confirmed, because that navigates straight here. See services/realtime.ts.
+  return subscribeToRows(
+    `customer-bookings-${customerId}`,
+    { table: "bookings", filter: `customer_id=eq.${customerId}` },
+    onChange,
+  );
 }
 // Phase 3D-1 booking lifecycle. Mirrors saloon-bookbarber-web/src/lib/salons/queries.ts
 // exactly — same RPCs, same argument names. The server owns ownership, eligibility and
