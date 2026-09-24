@@ -1,0 +1,43 @@
+name: CI
+
+# The mobile suite is pure: every test here is over local functions (price and date
+# formatting, booking error codes, opening-hours rendering, salon display), with no
+# Supabase call and no device. So it runs in full on every push - there is no
+# database-dependent half to leave out, unlike the web repo.
+#
+# Note that the portal-parity drift detector, which checks that this repo and the web
+# repo still express the same product rules, lives in the WEB repo's CI and reads this
+# repo's source. A change here that breaks parity turns the web build red, not this one.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Mobile tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
