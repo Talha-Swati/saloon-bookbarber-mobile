@@ -272,6 +272,66 @@ export type CreatedBookingGroup = {
   total: number;
   requiresPayment: boolean;
 };
+/** One line of a server-priced basket. */
+export type BookingQuoteLine = {
+  position: number;
+  serviceId: string;
+  serviceName: string;
+  salonPrice: number;
+  bookingFee: number;
+  customerPrice: number;
+};
+
+export type BookingQuote = {
+  lines: BookingQuoteLine[];
+  /** What the salon charges for all of it, before the online booking fee. */
+  salonTotal: number;
+  /** The online booking fee across the whole visit. */
+  bookingFee: number;
+  /** What the customer pays. The only figure a checkout screen should total. */
+  total: number;
+};
+
+/**
+ * What a basket actually costs, priced by the server.
+ *
+ * quote_booking_group(p_service_ids uuid[]) —
+ * supabase/migrations/033_progressive_markup_for_multi_service_bookings.sql.
+ *
+ * This exists because since 033 the booking fee is NOT the same for every service in a
+ * visit: the second and later services carry a smaller fee than the first. Summing each
+ * service's own `price` — which is what this screen used to do, and what the web app
+ * used to do — therefore quotes a total higher than the database will charge. Both
+ * clients now ask the server, so there is one answer rather than three.
+ *
+ * Mirrors saloon-bookbarber-web/src/lib/salons/queries.ts's quoteBookingGroup exactly:
+ * same RPC, same argument name, same return shape. The portal-parity suite is what
+ * keeps them that way.
+ */
+export async function quoteBookingGroup(serviceIds: string[]): Promise<BookingQuote> {
+  requireSupabaseConfig();
+  const { data, error } = await supabase.rpc("quote_booking_group", {
+    p_service_ids: serviceIds,
+  });
+  if (error) throw error;
+
+  const lines = ((data ?? []) as Row[]).map((row) => ({
+    position: number(row.r_position),
+    serviceId: String(row.r_service_id),
+    serviceName: row.r_service_name ?? "Service",
+    salonPrice: number(row.r_salon_price),
+    bookingFee: number(row.r_booking_fee),
+    customerPrice: number(row.r_customer_price),
+  }));
+
+  return {
+    lines,
+    salonTotal: lines.reduce((sum, line) => sum + line.salonPrice, 0),
+    bookingFee: lines.reduce((sum, line) => sum + line.bookingFee, 0),
+    total: lines.reduce((sum, line) => sum + line.customerPrice, 0),
+  };
+}
+
 // create_customer_booking_group(p_service_ids uuid[], p_start_time timestamptz, ...) —
 // supabase/migrations/016_multi_service_bookings.sql (unapplied until Talha runs
 // 013-016 in order). Mirrors saloon-bookbarber-web/src/lib/salons/queries.ts's
@@ -548,7 +608,14 @@ export type DepositIntent = {
   status: PaymentStatus;
   kind: string;
   providerReady: boolean;
-  redirect?: { method: "GET" | "POST"; url: string } | null;
+  redirect?: {
+    method: "GET" | "POST";
+    url: string;
+    // Easypaisa hosted checkout is a form POST, not a link. Dropping the fields
+    // here would leave the app able to open the checkout page and unable to say
+    // which booking it is for.
+    fields?: Record<string, string> | null;
+  } | null;
   error?: string;
 };
 
@@ -580,6 +647,121 @@ export async function startDepositPayment(
     throw new Error(payload?.error ?? "Could not start payment");
   }
   return payload as DepositIntent;
+}
+
+
+// "Did my payment go through?" - asked by the app, answered by the server.
+//
+// The app needs this and the website does not, because of where a hosted checkout
+// returns to. Easypaisa redirects to a URL; on a phone that URL opens in the SYSTEM
+// browser, not inside this app, so the app never sees the gateway callback. Without a
+// poll it would sit on a spinner forever while the web callback quietly settled the
+// payment behind it.
+//
+// The route this calls runs exactly the same settlement path the gateway callback runs,
+// so a payment that completed while a callback was lost still lands here. Nothing in the
+// request says what happened - only which booking is being asked about - and RLS decides
+// whether this caller may ask at all.
+export type PaymentPollState =
+  | "none"
+  | "not_started"
+  | "pending"
+  | "paid"
+  | "failed"
+  // Paid, but the appointment could not be honoured - the hold expired and the slot went
+  // (022). Deliberately its own state: telling this customer "confirmed" or "failed"
+  // would both be untrue, and they have paid.
+  | "review"
+  | "unknown";
+
+export type PaymentPollResult = {
+  state: PaymentPollState;
+  /** The visit code, once there is one to show. */
+  reference?: string | null;
+  amount?: number;
+  currency?: string;
+};
+
+export async function pollPaymentStatus(bookingId: string): Promise<PaymentPollResult> {
+  requireSupabaseConfig();
+  if (!apiBaseUrl()) {
+    throw new Error("API_NOT_CONFIGURED");
+  }
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("AUTH_REQUIRED");
+  }
+
+  const response = await fetch(
+    apiUrl(`/api/payments/status?bookingId=${encodeURIComponent(bookingId)}`),
+    { headers: { Authorization: `Bearer ${session.access_token}` } },
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error ?? "Could not check the payment");
+  }
+  return payload as PaymentPollResult;
+}
+
+// The receipt for one visit, by its short code.
+//
+// Straight to Supabase rather than through the web backend: booking_receipt (035) is
+// SECURITY DEFINER and authorises the signed-in caller itself, so there is nothing for a
+// server route to add except a hop. The same RPC answers the customer and salon staff.
+export type ReceiptService = {
+  booking_id: string;
+  service: string;
+  price: number;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  professional: string | null;
+};
+
+export type BookingReceipt = {
+  reference: string;
+  salon: { id: string; name: string; slug: string; timezone: string; currency: string };
+  customer: { name: string; phone: string };
+  starts_at: string;
+  status: string;
+  services: ReceiptService[];
+  total: number;
+  amount_paid: number;
+  fully_paid: boolean;
+  viewer: "customer" | "salon_admin" | "professional" | "super_admin";
+};
+
+export async function fetchBookingReceipt(reference: string): Promise<BookingReceipt> {
+  requireSupabaseConfig();
+  const { data, error } = await supabase.rpc("booking_receipt", {
+    p_reference: reference,
+  });
+  // NOT_AUTHORISED covers both "no such code" and "not yours" - 035 returns the same code
+  // for each so it cannot be used to probe, and that property is kept here rather than
+  // being unpicked into two different messages on screen.
+  if (error) throw new Error(error.message);
+  return data as BookingReceipt;
+}
+
+/**
+ * The visit code for a booking just created.
+ *
+ * create_customer_booking_group does not return it - the column arrived in 035, after
+ * that function was last rewritten, and widening its return type would mean editing a
+ * function five migrations have patched in place. One select under the customer's own
+ * RLS is the cheaper answer.
+ */
+export async function fetchBookingReference(bookingId: string): Promise<string | null> {
+  requireSupabaseConfig();
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("reference")
+    .eq("id", bookingId)
+    .maybeSingle();
+  if (error) return null;
+  return (data?.reference as string | null) ?? null;
 }
 
 // bookingErrorMessage now lives in utils/bookingErrors.ts.

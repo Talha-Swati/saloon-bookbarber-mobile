@@ -24,6 +24,8 @@ import {
   createBookingGroup,
   fetchAvailability,
   fetchSalon,
+  quoteBookingGroup,
+  type BookingQuote,
 } from "@/services/salonService";
 import { DummyPaymentError, PAYMENT_TEST_MODE, runDummyEasypaisaPayment } from "@/services/dummyPayment";
 import { useAuth } from "@/providers/AuthProvider";
@@ -109,7 +111,39 @@ export default function BookingFlow() {
     [salon, serviceIds],
   );
   const firstService = services[0];
-  const totalPrice = services.reduce((sum, service) => sum + service.price, 0);
+
+  /**
+   * The total is asked of the server, not summed here.
+   *
+   * Since migration 033 the online booking fee shrinks for the second and later service
+   * in one visit, so adding up each service's own single-service price quotes MORE than
+   * the database will charge. The local sum stays only as what is shown until the quote
+   * lands — it is the higher figure, so a customer is never shown less than they pay.
+   */
+  const [quote, setQuote] = useState<BookingQuote | null>(null);
+  const quoteKey = serviceIds.join(",");
+
+  useEffect(() => {
+    if (!quoteKey) {
+      setQuote(null);
+      return;
+    }
+    let cancelled = false;
+    quoteBookingGroup(quoteKey.split(","))
+      .then((result) => {
+        if (!cancelled) setQuote(result);
+      })
+      .catch(() => {
+        if (!cancelled) setQuote(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteKey]);
+
+  const localSum = services.reduce((sum, service) => sum + service.price, 0);
+  const totalPrice = quote?.total ?? localSum;
+  const bookingFee = quote?.bookingFee ?? 0;
   const totalDuration = services.reduce((sum, service) => sum + service.duration, 0);
 
   // Client-side estimate only, for the review step — the server (create_customer_
@@ -407,6 +441,24 @@ export default function BookingFlow() {
             </Animated.View>
           ))}
 
+          {/*
+            Services, the booking fee, the total — and nothing else. How that fee is
+            divided between the salon and the platform is a commercial arrangement
+            between the two of them and has no place on a customer's checkout.
+          */}
+          {quote && bookingFee > 0 ? (
+            <>
+              <View style={s.feeRow}>
+                <Text style={s.feeLabel}>Services</Text>
+                <Text style={s.feeValue}>{formatPkr(quote.salonTotal)}</Text>
+              </View>
+              <View style={s.feeRow}>
+                <Text style={s.feeLabel}>Online booking fee</Text>
+                <Text style={s.feeValue}>{formatPkr(bookingFee)}</Text>
+              </View>
+            </>
+          ) : null}
+
           <View style={s.totalRow}>
             <Text style={s.totalLabel}>Total</Text>
             <Text style={s.totalValue}>{formatPkr(totalPrice)}</Text>
@@ -536,6 +588,15 @@ const s = StyleSheet.create({
   lineName: { ...type.bodyStrong, color: colors.text },
   lineMeta: { ...type.label, fontWeight: "400", color: colors.muted, marginTop: 3 },
   linePrice: { ...type.bodyStrong, color: colors.text },
+  feeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  feeLabel: { ...type.body, color: colors.muted },
+  feeValue: { ...type.body, color: colors.text },
   totalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
